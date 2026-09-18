@@ -41,7 +41,7 @@
    *event stream* is also done: `GET /admin/runtimes` (snapshot) and
    `GET /admin/runtimes/events` (admin-session-gated Server-Sent Events)
    report profile/pod runtime status - not per-action browser events -
-   per the spec's line 64 (`agent-browser-codex-handoff.md`), backed by a
+   per the original spec's line 110 (`docs/architecture/original-spec.md`), backed by a
    minimal `/admin` tile-grid page (`src/admin-dashboard.html`). Live
    tiles only show `STARTING`/`READY`/`IDLE` profiles; a state leaving
    that set is pushed as a `removed` event, so a stopped pod disappears
@@ -92,7 +92,7 @@
    gained CPU/memory requests+limits (250m/512Mi request, 1 CPU/1Gi
    limit) - closing a real gap where the controller Deployment had
    resource limits but every worker Pod did not, contradicting the
-   spec's line 70 ("CPU/RAM/pids limits"). ("pids limits" specifically is
+   original spec's line 116 ("CPU/RAM/pids limits"). ("pids limits" specifically is
    a kubelet/container-runtime setting, not something expressible in a
    Pod manifest this app controls, so it's out of scope here - noted,
    not silently dropped.) New tests (`tests/capacity.test.ts`) prove the

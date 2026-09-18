@@ -7,7 +7,7 @@ export type RuntimeDiff = { updated: AdminRuntime[]; removed: string[] };
 export type SseSink = { write(chunk: string): void };
 
 /** Only these states belong on the live dashboard - a stopped/failed profile still exists for
- * profile management, it just stops appearing here (agent-browser-codex-handoff.md line 64). */
+ * profile management, it just stops appearing here (docs/architecture/original-spec.md line 110). */
 export const LIVE_STATES = ['STARTING', 'READY', 'IDLE'] as const;
 
 export function postgresRuntimeSource(repository: { listAdminRuntimes(): Promise<AdminRuntime[]> }): RuntimeSource {

@@ -40,7 +40,7 @@
     const loginBox = document.getElementById('login');
     let csrfToken = '';
 
-    // Live per-tile thumbnails, per agent-browser-codex-handoff.md line 60: "Only start streams
+    // Live per-tile thumbnails, per docs/architecture/original-spec.md line 106: "Only start streams
     // for visible tiles (IntersectionObserver) and cap concurrent streams; optional
     // thumbnails/snapshot polling at high counts." A thumbnail is a cheap approximation of the
     // real noVNC feed - one JPEG poll per visible tile rather than a persistent WebSocket per

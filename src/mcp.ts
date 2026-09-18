@@ -14,7 +14,7 @@ export type WorkerPort = {
   passkeyEnrollPoll(): Promise<unknown>;
   passkeyList(): Promise<{ credentials: unknown[] }>;
   /** Admin-dashboard-only: a periodic visual thumbnail, never exposed as an MCP tool - see
-   * agent-browser-codex-handoff.md line 60's "optional thumbnails/snapshot polling". */
+   * docs/architecture/original-spec.md line 106's "optional thumbnails/snapshot polling". */
   thumbnail(): Promise<{ image: string; contentType: string }>;
 };
 export type DurableProfileStore = {

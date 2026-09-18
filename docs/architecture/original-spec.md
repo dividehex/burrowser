@@ -1,4 +1,50 @@
-# Agent Browser — Codex Implementation Handoff
+# Agent Browser — original design specification
+
+> **Status note (added 2026-09-18, retroactively):** This is the original
+> design document this project was built from — kept for historical
+> record and design rationale, not as a live status page. It's referenced
+> by specific line number from a few places in the code (search the repo
+> for this file's old name/path if a reference looks stale) as the
+> justification for particular decisions, which is why it's kept rather
+> than deleted.
+>
+> **For current implementation status, see
+> [`docs/implementation-plan.md`](../implementation-plan.md) — that file
+> is authoritative, this one is not.** The text below is preserved as
+> originally written (down to referring to itself as a "Codex" handoff,
+> the tool it was originally written for) and is **known to no longer
+> match reality** in these specific ways:
+>
+> - **No TLS.** The Mission section below calls for exposing the gateway
+>   "with authenticated TLS." That was never built — the gateway is plain
+>   `node:http`. This is a real, currently open gap, not an oversight in
+>   this note.
+> - **No enrollment CLI.** "Agent enrollment and authentication" below
+>   describes an `agent-browser enroll --url ... --invitation ...` CLI.
+>   It was never built; enrollment today means calling the raw HTTP
+>   identity endpoints directly.
+> - **No admin profile-delete endpoint.** "Administrative APIs" below
+>   specifies `DELETE /admin/profiles/{id}` with audited two-phase
+>   deletion. It doesn't exist — there is currently no way to delete a
+>   profile through the API at all, only through direct database/`kubectl`
+>   surgery. Everything else listed under "Administrative APIs" and
+>   `/v1/...` exists, except `POST /v1/profiles/{id}/heartbeat`, which was
+>   also never built.
+> - **Repository structure differs.** "Repository suggested structure"
+>   below sketches a Go-style `cmd/`/`internal/` layout. The actual
+>   layout is a flat `src/`/`worker/src/` TypeScript tree — see
+>   [`docs/repository-structure.md`](../repository-structure.md) and
+>   [ADR-0001](adr-0001-controller-stack.md) for why and what changed.
+> - **Language choice was resolved.** "Language choice: Go controller ...
+>   OR TypeScript controller ... is acceptable; choose one" below was
+>   resolved in favor of TypeScript for both the controller and the
+>   worker (see ADR-0001).
+>
+> Everything else — the mission, trust boundaries, data model, milestone
+> list, non-goals (no OpenBao, no password/TOTP automation) — was built
+> essentially as specified and remains accurate; see
+> `docs/implementation-plan.md` for the live-verified detail behind each
+> milestone.
 
 Status: approved architecture, implementation not yet built or tested. Date: 2026-09-17.
 
