@@ -25,9 +25,11 @@ function browserContext(): Promise<BrowserContext> {
   contextPromise ??= (async () => {
     mkdirSync('/profile/chromium', { recursive: true });
     mkdirSync('/profile/authenticator', { recursive: true });
-    const context = await chromium.launchPersistentContext('/profile/chromium', { headless: false, chromiumSandbox: true, args: ['--window-size=1280,900'] });
+    // Playwright's own signal handlers would start a second close alongside shutdown()'s, and a second
+    // close SIGKILLs Chromium, leaving the profile marked as crashed. shutdown() is the only closer.
+    const context = await chromium.launchPersistentContext('/profile/chromium', { headless: false, chromiumSandbox: true, args: ['--window-size=1280,900'], handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
     await restoreCredentials(credentialsOf(context), credentialPath, credentialKey);
-    keepBrowserAlive(context, () => { contextPromise = undefined; });
+    keepBrowserAlive(context, () => { contextPromise = undefined; }, { closing: () => shuttingDown });
     return context;
   })().catch(error => { contextPromise = undefined; throw error; });
   return contextPromise;
@@ -88,15 +90,20 @@ export const server = createServer(async (req, res) => {
   } catch (error) { if (!res.headersSent) reply(res, 400, { error: error instanceof Error ? error.message : 'request failed' }); }
 });
 
+let shuttingDown = false;
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('shutting down: closing the browser');
   server.close();
   let failure: unknown;
   try { if (contextPromise) await persistCredentials(credentialsOf(await contextPromise), credentialPath, credentialKey); }
   catch (error) { failure = error; console.error('credential persistence failed during shutdown'); }
-  finally { if (contextPromise) await (await contextPromise).close(); }
+  try { if (contextPromise) await (await contextPromise).close(); }
+  catch (error) { failure = error; console.error('browser close failed during shutdown'); }
+  console.log(failure ? 'shutdown finished with errors' : 'browser closed cleanly');
   process.exit(failure ? 1 : 0);
 }
-process.once('SIGTERM', shutdown);
-process.once('SIGINT', shutdown);
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, shutdown);
 
 if (import.meta.url === `file://${process.argv[1]}`) server.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');

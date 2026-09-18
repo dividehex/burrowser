@@ -8,13 +8,13 @@ type KeptContext = Pick<BrowserContext, 'on' | 'pages' | 'newPage'>;
  * Playwright MCP also recreates a tab on its next call, so after `settleMs` surplus tabs are dropped, but
  * only when every open tab is blank.
  */
-export function keepBrowserAlive(context: KeptContext, onClosed: () => void, settleMs = 1000) {
+export function keepBrowserAlive(context: KeptContext, onClosed: () => void, { settleMs = 1000, closing = () => false } = {}) {
   const dropSurplusBlanks = () => {
     const pages = context.pages();
     if (pages.length > 1 && pages.every(page => page.url() === 'about:blank')) pages.slice(1).forEach(page => page.close().catch(() => {}));
   };
   const watch = (page: ReturnType<KeptContext['pages']>[number]) => page.on('close', () => {
-    if (context.pages().length > 0) return;
+    if (closing() || context.pages().length > 0) return;
     context.newPage().then(() => setTimeout(dropSurplusBlanks, settleMs).unref(), () => {});
   });
   context.pages().forEach(watch);

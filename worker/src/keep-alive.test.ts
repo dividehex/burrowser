@@ -26,7 +26,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 
 test('closing the last tab opens a new one, but closing one of several does not', async () => {
   const { context, pages, opened } = fakeContext(['https://a.example/', 'https://b.example/']);
-  keepBrowserAlive(context, () => {}, 0);
+  keepBrowserAlive(context, () => {}, { settleMs: 0 });
   await pages[1].close();
   assert.equal(opened(), 0);
   await pages[0].close();
@@ -37,7 +37,7 @@ test('closing the last tab opens a new one, but closing one of several does not'
 
 test('tabs opened later are watched too, and the replacement tab is itself kept', async () => {
   const { context, pages, addPage, opened } = fakeContext();
-  keepBrowserAlive(context, () => {}, 0);
+  keepBrowserAlive(context, () => {}, { settleMs: 0 });
   await addPage('https://a.example/').close();
   await tick();
   assert.equal(opened(), 1);
@@ -49,7 +49,7 @@ test('tabs opened later are watched too, and the replacement tab is itself kept'
 
 test('a second blank tab created by Playwright MCP after the last one closed is dropped', async () => {
   const { context, pages, addPage } = fakeContext(['https://a.example/']);
-  keepBrowserAlive(context, () => {}, 0);
+  keepBrowserAlive(context, () => {}, { settleMs: 0 });
   await pages[0].close();
   addPage();
   await tick();
@@ -58,7 +58,7 @@ test('a second blank tab created by Playwright MCP after the last one closed is 
 
 test('surplus blank tabs are left alone when any tab has content', async () => {
   const { context, pages, addPage } = fakeContext(['https://a.example/']);
-  keepBrowserAlive(context, () => {}, 0);
+  keepBrowserAlive(context, () => {}, { settleMs: 0 });
   await pages[0].close();
   addPage('https://b.example/');
   await tick();
@@ -71,4 +71,13 @@ test('a context close is reported', () => {
   keepBrowserAlive(context, () => { closed++; });
   emitter.emit('close');
   assert.equal(closed, 1);
+});
+
+test('no replacement tab is opened while the worker is shutting down', async () => {
+  const { context, pages, opened } = fakeContext(['https://a.example/']);
+  keepBrowserAlive(context, () => {}, { settleMs: 0, closing: () => true });
+  await pages[0].close();
+  await tick();
+  assert.equal(opened(), 0);
+  assert.equal(pages.length, 0);
 });
