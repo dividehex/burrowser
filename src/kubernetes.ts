@@ -43,7 +43,7 @@ export class KubernetesApiClient implements KubernetesPort {
     }
   }
 
-  async delete(kind: 'pod' | 'service' | 'secret', name: string): Promise<void> {
+  async delete(kind: ResourceKind, name: string): Promise<void> {
     try {
       await (this.api[DELETE_METHOD[kind]] as (params: { name: string; namespace: string }) => Promise<unknown>)({ name, namespace: this.namespace });
     } catch (error) {

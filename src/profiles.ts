@@ -21,7 +21,11 @@ export function ownedProfile(store: ProfileStore, agentId: string, id: string) {
   return profile;
 }
 
-export function acquireLease(store: ProfileStore, profile: Profile, clientId: string, now = Date.now(), ttlMs = 30_000) {
+/** Long enough to span an LLM agent's think time between tool calls; every successful call slides it forward. */
+export const LEASE_TTL_MS = 120_000;
+export const LEASE_EXPIRED_MESSAGE = 'lease required or expired: call browser_profile_open again to obtain a fresh fencing_generation';
+
+export function acquireLease(store: ProfileStore, profile: Profile, clientId: string, now = Date.now(), ttlMs = LEASE_TTL_MS) {
   const current = store.leases.get(profile.id);
   if (current && current.expiresAt > now && current.ownerClientId !== clientId) throw new Error('profile busy');
   const lease = { profileId: profile.id, ownerClientId: clientId, fencingGeneration: (current?.fencingGeneration ?? 0) + 1, expiresAt: now + ttlMs };
@@ -31,7 +35,7 @@ export function acquireLease(store: ProfileStore, profile: Profile, clientId: st
 
 export function requireLease(store: ProfileStore, profileId: string, clientId: string, generation: number, now = Date.now()) {
   const lease = store.leases.get(profileId);
-  if (!lease || lease.ownerClientId !== clientId || lease.fencingGeneration !== generation || lease.expiresAt <= now) throw new Error('lease required or expired');
+  if (!lease || lease.ownerClientId !== clientId || lease.fencingGeneration !== generation || lease.expiresAt <= now) throw new Error(LEASE_EXPIRED_MESSAGE);
   return lease;
 }
 

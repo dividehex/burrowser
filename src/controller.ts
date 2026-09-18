@@ -1,11 +1,12 @@
 import type { Lease, Profile, ProfileStore } from './profiles.ts';
-import { reclaimIdleProfiles, reclaimStuckProfiles, reconcileProfile, type KubernetesPort } from './reconcile.ts';
+import { deleteProfileResources, reclaimIdleProfiles, reclaimStuckProfiles, reconcileProfile, type KubernetesPort } from './reconcile.ts';
 import type { WorkerSecretMaterial } from './kube.ts';
 
 export type ControllerStateSource = {
   listProfiles(): Promise<Profile[]>;
   listLeases(): Promise<Lease[]>;
   updateProfileState?(profileId: string, state: string): Promise<void>;
+  finalizeProfileDeletion?(profileId: string): Promise<void>;
 };
 export type WorkerSecretProvider = { get(profile: Profile): Promise<WorkerSecretMaterial>; ensure?(profile: Profile): Promise<WorkerSecretMaterial> };
 export type ControllerOptions = { state: ControllerStateSource; secrets: WorkerSecretProvider; kube: KubernetesPort; workerImage: string; intervalMs?: number; stuckMs?: number; onError?: (error: unknown) => void };
@@ -26,7 +27,11 @@ export class ProfileController {
     const store: ProfileStore = { profiles: new Map(profiles.map(profile => [profile.id, profile])), leases: new Map(leases.map(lease => [lease.profileId, lease])) };
     let reconciled = 0;
     for (const profile of profiles) {
-      if (['STOPPED', 'DELETING'].includes(profile.state)) continue;
+      if (profile.state === 'DELETING') {
+        if (await deleteProfileResources(profile, this.options.kube)) await this.options.state.finalizeProfileDeletion?.(profile.id);
+        continue;
+      }
+      if (profile.state === 'STOPPED') continue;
       const workerSecret = this.options.secrets.ensure ? await this.options.secrets.ensure(profile) : await this.options.secrets.get(profile);
       await reconcileProfile(profile, this.options.kube, this.options.workerImage, workerSecret);
       await this.options.state.updateProfileState?.(profile.id, profile.state);

@@ -19,11 +19,29 @@ import type { WorkerPort } from './mcp.ts';
 import type { Profile } from './profiles.ts';
 import { KubernetesWorkerSecretProvider } from './worker-secrets.ts';
 import { HttpWorkerClient } from './worker-client.ts';
+import { HttpError } from './errors.ts';
 
 export type AppState = Store & ProfileStore & { challenges: ChallengeStore };
 export function makeState(): AppState { return { invitations: new Map(), agents: new Map(), profiles: new Map(), leases: new Map(), challenges: new Map() }; }
 const json = (res: any, status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
 async function body(req: any) { let data = ''; for await (const chunk of req) data += chunk; if (data.length > 64 * 1024) throw new Error('request too large'); return JSON.parse(data || '{}'); }
+
+function listAgentsInMemory(state: AppState) {
+  return [...state.agents.values()].map(agent => ({ id: agent.id, displayName: agent.displayName, status: agent.revokedAt ? 'revoked' : 'active', profileCount: [...state.profiles.values()].filter(profile => profile.agentId === agent.id).length }));
+}
+
+function deleteProfileInMemory(state: AppState, profileId: string) {
+  if (!state.profiles.delete(profileId)) throw new HttpError(404, 'profile not found');
+  state.leases.delete(profileId);
+}
+
+function deleteAgentInMemory(state: AppState, agentId: string) {
+  if (!state.agents.has(agentId)) throw new HttpError(404, 'agent not found');
+  const owned = [...state.profiles.values()].filter(profile => profile.agentId === agentId).length;
+  if (owned > 0) throw new HttpError(409, `agent still owns ${owned} profile(s); delete them first`);
+  state.agents.delete(agentId);
+  state.challenges.delete(agentId);
+}
 
 const RATE_LIMITS: Record<string, { points: number; duration: number }> = {
   '/admin/login': { points: 10, duration: 60 },
@@ -40,7 +58,14 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
   const namespace = process.env.KUBERNETES_NAMESPACE ?? 'burrowser';
   const dialTarget = viewTargetForProfile ?? (profileId => ({ host: `bw-${profileId}.${namespace}.svc`, port: 5900 }));
   const runtimeSource = repository ? postgresRuntimeSource(repository) : inMemoryRuntimeSource(state);
-  const authorizeAdmin = (headers: Record<string, string | string[] | undefined>) => Boolean(adminAuth.authenticate(headers)) || Boolean(adminToken && headers.authorization === `Bearer ${adminToken}`);
+  type Headers = Record<string, string | string[] | undefined>;
+  const authorizeAdmin = (headers: Headers) => Boolean(adminAuth.authenticate(headers)) || adminAuth.authenticateBootstrap(headers);
+  /** Admin mutations accept the bootstrap bearer token, or a session cookie plus its CSRF token. Returns who acted, for the audit trail. */
+  const requireAdminMutation = (headers: Headers): { actor: 'bootstrap' | 'session'; sessionId?: string } => {
+    if (adminAuth.authenticateBootstrap(headers)) return { actor: 'bootstrap' };
+    if (!adminAuth.authenticate(headers)) throw new HttpError(401, 'unauthenticated');
+    return { actor: 'session', sessionId: adminAuth.requireMutation(headers).id };
+  };
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'https://gateway.invalid');
@@ -58,10 +83,7 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
         res.writeHead(204, { 'set-cookie': adminAuth.cookie(session), 'x-csrf-token': session.csrfToken, 'cache-control': 'no-store' }); res.end(); return;
       }
       if (req.method === 'POST' && url.pathname === '/admin/enrollments') {
-        const session = adminAuth.authenticate(req.headers);
-        const bootstrap = adminToken && req.headers.authorization === `Bearer ${adminToken}`;
-        if (!session && !bootstrap) return json(res, 401, { error: 'unauthenticated' });
-        if (session && !bootstrap) adminAuth.requireMutation(req.headers);
+        requireAdminMutation(req.headers);
         const invitation = issueInvitation(state);
         if (repository) {
           state.invitations.delete(invitation.id);
@@ -71,10 +93,7 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
       }
       const revokeMatch = req.method === 'POST' && url.pathname.match(/^\/admin\/agents\/([^/]+)\/revoke$/);
       if (revokeMatch) {
-        const session = adminAuth.authenticate(req.headers);
-        const bootstrap = adminToken && req.headers.authorization === `Bearer ${adminToken}`;
-        if (!session && !bootstrap) return json(res, 401, { error: 'unauthenticated' });
-        if (session && !bootstrap) adminAuth.requireMutation(req.headers);
+        requireAdminMutation(req.headers);
         if (repository) await repository.revokeAgent(revokeMatch[1], new Date());
         else revokeAgent(state, revokeMatch[1]);
         res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return;
@@ -97,15 +116,12 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
       }
       const adminViewMatch = req.method === 'POST' && url.pathname.match(/^\/admin\/profiles\/([^/]+)\/view-ticket$/);
       if (adminViewMatch) {
-        const session = adminAuth.authenticate(req.headers);
-        const bootstrap = adminToken && req.headers.authorization === `Bearer ${adminToken}`;
-        if (!session && !bootstrap) return json(res, 401, { error: 'unauthenticated' });
-        if (session && !bootstrap) adminAuth.requireMutation(req.headers);
+        const { sessionId } = requireAdminMutation(req.headers);
         const profile = repository ? (await repository.listControllerProfiles()).find(candidate => candidate.id === adminViewMatch[1]) : state.profiles.get(adminViewMatch[1]);
         if (!profile) throw new Error('profile not found');
         if (!viewSecretsForProfile) throw new Error('live view unavailable');
         const { vncPassword } = await viewSecretsForProfile(profile);
-        const ticket = issueViewTicket(viewTickets, profile.id, `admin:${session?.id ?? 'bootstrap'}`);
+        const ticket = issueViewTicket(viewTickets, profile.id, `admin:${sessionId ?? 'bootstrap'}`);
         return json(res, 200, { ticket, vnc_password: vncPassword, expires_in: 30 });
       }
       const adminThumbnailMatch = req.method === 'GET' && url.pathname.match(/^\/admin\/profiles\/([^/]+)\/thumbnail$/);
@@ -119,6 +135,30 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
         res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
         res.end(Buffer.from(image, 'base64'));
         return;
+      }
+      if (req.method === 'GET' && url.pathname === '/admin/agents') {
+        if (!authorizeAdmin(req.headers)) return json(res, 401, { error: 'unauthenticated' });
+        return json(res, 200, { agents: repository ? await repository.listAgents() : listAgentsInMemory(state) });
+      }
+      if (req.method === 'GET' && url.pathname === '/admin/profiles') {
+        if (!authorizeAdmin(req.headers)) return json(res, 401, { error: 'unauthenticated' });
+        return json(res, 200, { profiles: await runtimeSource.listAdminRuntimes() });
+      }
+      const adminDeleteMatch = req.method === 'DELETE' && url.pathname.match(/^\/admin\/(profiles|agents)\/([^/]+)$/);
+      if (adminDeleteMatch) {
+        const { actor } = requireAdminMutation(req.headers);
+        const [, kind, id] = adminDeleteMatch;
+        if (url.searchParams.get('confirm') !== id) throw new HttpError(400, `confirmation required: repeat the ${kind === 'profiles' ? 'profile' : 'agent'} id as ?confirm=<id>`);
+        if (kind === 'agents') {
+          if (repository) await repository.deleteAgent(id, actor); else deleteAgentInMemory(state, id);
+          res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return;
+        }
+        if (repository) {
+          await repository.requestProfileDeletion(id, actor);
+          return json(res, 202, { id, state: 'DELETING' });
+        }
+        deleteProfileInMemory(state, id);
+        return json(res, 200, { id, state: 'DELETED' });
       }
       if (req.method === 'POST' && url.pathname === '/v1/identity/enroll') {
         const input = await body(req);
@@ -179,7 +219,7 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
         return json(res, 200, { ticket, vnc_password: vncPassword, expires_in: 30 });
       }
       return json(res, 404, { error: 'not_found' });
-    } catch (error) { const message = error instanceof Error ? error.message : 'request failed'; const status = message.includes('busy') ? 409 : message.includes('too many') ? 429 : message.includes('unauthenticated') || message.includes('token') || message.includes('proof') ? 401 : 400; json(res, status, { error: message }); }
+    } catch (error) { const message = error instanceof Error ? error.message : 'request failed'; const status = error instanceof HttpError ? error.status : message.includes('busy') ? 409 : message.includes('too many') ? 429 : message.includes('unauthenticated') || message.includes('token') || message.includes('proof') ? 401 : 400; json(res, status, { error: message }); }
   });
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'https://gateway.invalid');

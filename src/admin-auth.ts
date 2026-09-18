@@ -41,6 +41,12 @@ export class AdminAuth {
     return { id, ...session };
   }
 
+  /** Constant-time check of an `Authorization: Bearer <bootstrap token>` header (scripted/CLI admin access). */
+  authenticateBootstrap(headers: RequestHeaders): boolean {
+    const header = headers.authorization;
+    return Boolean(this.bootstrapToken) && typeof header === 'string' && header.startsWith('Bearer ') && equal(header.slice('Bearer '.length), this.bootstrapToken as string);
+  }
+
   requireMutation(headers: RequestHeaders, now = Date.now()): AdminSession {
     const session = this.authenticate(headers, now);
     const csrf = headers['x-csrf-token'];

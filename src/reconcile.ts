@@ -5,11 +5,11 @@ export type ObservedPod = { phase: 'Pending' | 'Running' | 'Failed' | 'Unknown';
 export type KubernetesPort = {
   get(kind: 'pvc' | 'pod' | 'service' | 'secret', name: string): Promise<unknown | undefined>;
   apply(kind: 'pvc' | 'pod' | 'service' | 'secret', name: string, resource: unknown): Promise<void>;
-  delete(kind: 'pod' | 'service' | 'secret', name: string): Promise<void>;
+  delete(kind: 'pod' | 'service' | 'secret' | 'pvc', name: string): Promise<void>;
   podStatus(name: string): Promise<ObservedPod | undefined>;
 };
 
-/** Reconcile one profile. PVC is deliberately never deleted by this controller. */
+/** Reconcile one profile. PVC is deliberately never deleted here; only deleteProfileResources removes one. */
 export async function reconcileProfile(profile: Profile, kube: KubernetesPort, image: string, workerSecret?: WorkerSecretMaterial) {
   const resources = workerResources(profile, image);
   try {
@@ -37,6 +37,23 @@ export async function stopProfile(profile: Profile, kube: KubernetesPort, finalS
   await kube.delete('pod', podName);
   await kube.delete('service', podName);
   profile.state = finalState;
+}
+
+/**
+ * Tear down everything a profile owns, including its PVC and worker Secret. Only reachable for a
+ * profile an administrator has explicitly marked DELETING. Deletes are idempotent and Kubernetes
+ * finishes them asynchronously (a PVC stays Terminating until its Pod is gone), so this returns
+ * true only once every resource is actually absent; the controller calls it again next tick otherwise.
+ */
+export async function deleteProfileResources(profile: Profile, kube: KubernetesPort): Promise<boolean> {
+  const podName = `bw-${profile.id}`;
+  const secretName = workerSecretName(profile);
+  await kube.delete('pod', podName);
+  await kube.delete('service', podName);
+  await kube.delete('secret', secretName);
+  await kube.delete('pvc', profile.pvcName);
+  const remaining = await Promise.all([kube.get('pod', podName), kube.get('service', podName), kube.get('secret', secretName), kube.get('pvc', profile.pvcName)]);
+  return remaining.every(resource => resource === undefined);
 }
 
 /**

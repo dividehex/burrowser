@@ -1,4 +1,4 @@
-import { acquireLease, createProfile, ownedProfile, releaseLease, requireLease, type ProfileStore } from './profiles.ts';
+import { acquireLease, createProfile, LEASE_EXPIRED_MESSAGE, LEASE_TTL_MS, ownedProfile, releaseLease, requireLease, type ProfileStore } from './profiles.ts';
 import { validateBrowserUrl } from './url-policy.ts';
 import type { Agent } from './identity.ts';
 import type { PostgresRepository } from './repository.ts';
@@ -23,6 +23,7 @@ export type DurableProfileStore = {
   acquireLease(profileId: string, agentId: string, clientId: string, now: Date): Promise<import('./profiles.ts').Lease>;
   releaseLease(profileId: string, clientId: string, generation: number, now: Date): Promise<void>;
   getLease(profileId: string): Promise<import('./profiles.ts').Lease | undefined>;
+  renewLease?(profileId: string, clientId: string, generation: number, now: Date): Promise<void>;
 };
 
 export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfiles' | 'createProfile' | 'acquireLease' | 'releaseLease' | 'getLease'>): DurableProfileStore {
@@ -56,9 +57,12 @@ export async function dispatchTool(store: ProfileStore | DurableProfileStore, ag
   if (!worker) throw new Error('browser unavailable');
   if (durable) {
     const lease = await store.getLease(profile.id);
-    if (!lease || lease.ownerClientId !== args.client_id || lease.fencingGeneration !== args.fencing_generation || lease.expiresAt <= now) throw new Error('lease required or expired');
+    if (!lease || lease.ownerClientId !== args.client_id || lease.fencingGeneration !== args.fencing_generation || lease.expiresAt <= now) throw new Error(LEASE_EXPIRED_MESSAGE);
+    await store.renewLease?.(profile.id, args.client_id, args.fencing_generation, new Date(now));
   } else {
-    requireLease(store, profile.id, args.client_id, args.fencing_generation, now);
+    const lease = requireLease(store, profile.id, args.client_id, args.fencing_generation, now);
+    lease.expiresAt = now + LEASE_TTL_MS;
+    profile.lastUsedAt = now;
   }
   if (name === 'browser_navigate') return worker.navigate(validateBrowserUrl(args.url, args.previous_url));
   if (name === 'browser_snapshot') return worker.snapshot();

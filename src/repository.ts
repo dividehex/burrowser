@@ -1,6 +1,7 @@
 import type { Agent } from './identity.ts';
-import type { Lease, Profile } from './profiles.ts';
+import { LEASE_TTL_MS, type Lease, type Profile } from './profiles.ts';
 import type { AdminRuntime } from './admin-runtimes.ts';
+import { HttpError } from './errors.ts';
 
 export type QueryResult<Row = Record<string, unknown>> = { rows: Row[]; rowCount?: number };
 export type DbClient = {
@@ -21,6 +22,9 @@ const profileFromRow = (row: ProfileRow): Profile => ({ id: row.id, agentId: row
 const leaseFromRow = (row: LeaseRow): Lease => ({ profileId: row.profile_id, ownerClientId: row.owner_client_id, fencingGeneration: Number(row.fencing_generation), expiresAt: timestamp(row.expires_at) });
 
 export type NewAgent = { id: string; displayName: string; publicKey: string };
+export type AgentSummary = { id: string; displayName: string; status: 'active' | 'revoked'; createdAt?: number; profileCount: number };
+export type AuditActor = 'bootstrap' | 'session';
+type AgentSummaryRow = { id: string; display_name: string; created_at: Date | string; revoked_at: Date | string | null; profile_count: number | string };
 export type NewProfile = { id: string; agentId: string; name: string; pvcName: string; state: string; createdAt: Date | number; lastUsedAt: Date | number };
 
 export class PostgresRepository {
@@ -123,7 +127,8 @@ export class PostgresRepository {
   }
 
   async updateProfileState(profileId: string, state: string): Promise<void> {
-    await this.poolQuery('UPDATE profiles SET state = $2 WHERE id = $1 AND deleted_at IS NULL', [profileId, state]);
+    // A reconcile pass that started before an admin requested deletion must not overwrite DELETING.
+    await this.poolQuery("UPDATE profiles SET state = $2 WHERE id = $1 AND deleted_at IS NULL AND state <> 'DELETING'", [profileId, state]);
   }
 
   async listControllerLeases(): Promise<Lease[]> {
@@ -133,10 +138,10 @@ export class PostgresRepository {
     return result.rows.map(leaseFromRow);
   }
 
-  async acquireLease(profileId: string, agentId: string, clientId: string, now: Date, ttlMs = 30_000): Promise<Lease> {
+  async acquireLease(profileId: string, agentId: string, clientId: string, now: Date, ttlMs = LEASE_TTL_MS): Promise<Lease> {
     return this.transaction(async client => {
       const profile = (await client.query<{ id: string }>(
-        'SELECT id FROM profiles WHERE id = $1 AND agent_id = $2 AND deleted_at IS NULL FOR UPDATE', [profileId, agentId],
+        "SELECT id FROM profiles WHERE id = $1 AND agent_id = $2 AND deleted_at IS NULL AND state <> 'DELETING' FOR UPDATE", [profileId, agentId],
       )).rows[0];
       if (!profile) throw new Error('profile not found');
       const current = (await client.query<LeaseRow>(
@@ -170,6 +175,73 @@ export class PostgresRepository {
       if (!current || current.owner_client_id !== clientId || Number(current.fencing_generation) !== generation || timestamp(current.expires_at) <= now.getTime()) throw new Error('lease required or expired');
       await client.query('DELETE FROM control_leases WHERE profile_id = $1', [profileId]);
     });
+  }
+
+  async listAgents(): Promise<AgentSummary[]> {
+    const result = await this.poolQuery<AgentSummaryRow>(
+      `SELECT a.id, a.display_name, a.created_at, a.revoked_at, count(p.id) AS profile_count
+       FROM agents a LEFT JOIN profiles p ON p.agent_id = a.id AND p.deleted_at IS NULL
+       GROUP BY a.id ORDER BY a.created_at, a.id`,
+    );
+    return result.rows.map(row => ({ id: row.id, displayName: row.display_name, status: row.revoked_at ? 'revoked' : 'active', createdAt: timestamp(row.created_at), profileCount: Number(row.profile_count) }));
+  }
+
+  /**
+   * Phase one of admin profile deletion: mark the profile DELETING and end any active lease so the
+   * owning agent can no longer drive it. The controller's next reconcile tears down the Pod, Service,
+   * worker Secret and PVC, then calls finalizeProfileDeletion (phase two).
+   */
+  async requestProfileDeletion(profileId: string, actor: AuditActor): Promise<void> {
+    await this.transaction(async client => {
+      const profile = (await client.query<{ state: string }>('SELECT state FROM profiles WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [profileId])).rows[0];
+      if (!profile) throw new HttpError(404, 'profile not found');
+      if (profile.state === 'DELETING') return;
+      await client.query('DELETE FROM control_leases WHERE profile_id = $1', [profileId]);
+      await client.query("UPDATE profiles SET state = 'DELETING' WHERE id = $1", [profileId]);
+      await this.audit(client, actor, 'profile.delete.requested', profileId);
+    });
+  }
+
+  /** Phase two: called once the controller has confirmed every Kubernetes resource is gone. */
+  async finalizeProfileDeletion(profileId: string): Promise<void> {
+    await this.transaction(async client => {
+      const profile = (await client.query<{ state: string }>('SELECT state FROM profiles WHERE id = $1 FOR UPDATE', [profileId])).rows[0];
+      if (!profile || profile.state !== 'DELETING') return;
+      await client.query('DELETE FROM control_leases WHERE profile_id = $1', [profileId]);
+      await client.query('DELETE FROM browser_runtimes WHERE profile_id = $1', [profileId]);
+      await client.query('DELETE FROM profiles WHERE id = $1', [profileId]);
+      await this.audit(client, 'controller', 'profile.delete.completed', profileId);
+    });
+  }
+
+  async deleteAgent(agentId: string, actor: AuditActor): Promise<void> {
+    await this.transaction(async client => {
+      const agent = (await client.query<{ id: string }>('SELECT id FROM agents WHERE id = $1 FOR UPDATE', [agentId])).rows[0];
+      if (!agent) throw new HttpError(404, 'agent not found');
+      const owned = Number((await client.query<{ count: number | string }>('SELECT count(*) AS count FROM profiles WHERE agent_id = $1', [agentId])).rows[0]?.count ?? 0);
+      if (owned > 0) throw new HttpError(409, `agent still owns ${owned} profile(s); delete them first`);
+      await client.query('UPDATE enrollment_invitations SET assigned_agent_id = NULL WHERE assigned_agent_id = $1', [agentId]);
+      await client.query('DELETE FROM agents WHERE id = $1', [agentId]);
+      await this.audit(client, actor, 'agent.deleted', null, agentId);
+    });
+  }
+
+  /** Slide an existing lease's expiry forward; a no-op if the caller no longer holds it. */
+  async renewLease(profileId: string, clientId: string, generation: number, now: Date, ttlMs = LEASE_TTL_MS): Promise<void> {
+    await this.transaction(async client => {
+      const renewed = await client.query(
+        'UPDATE control_leases SET expires_at = $4 WHERE profile_id = $1 AND owner_client_id = $2 AND fencing_generation = $3 AND expires_at > $5',
+        [profileId, clientId, generation, new Date(now.getTime() + ttlMs), now],
+      );
+      if (renewed.rowCount) await client.query('UPDATE profiles SET last_used_at = $2 WHERE id = $1', [profileId, now]);
+    });
+  }
+
+  private async audit(client: DbClient, actor: AuditActor | 'controller', action: string, profileId: string | null, subjectId?: string) {
+    await client.query(
+      'INSERT INTO audit_events (actor_type, actor_id, action, profile_id, subject_id, outcome) VALUES ($1, $2, $3, $4, $5, $6)',
+      [actor === 'controller' ? 'system' : 'admin', actor, action, profileId, subjectId ?? null, 'success'],
+    );
   }
 
   private async poolQuery<Row>(text: string, values: readonly unknown[] = []) {
