@@ -115,5 +115,33 @@
    built-in one, or otherwise) rather than depending on the maintainer to
    cut releases and host images. `scripts/build-and-deploy-local.sh`
    automates the build-and-push-to-your-own-registry path end to end.
+8. **CLI and admin lifecycle — done, live-verified.** Three gaps left over
+   from the original spec are closed. (a) A `burrowser` command line
+   (`src/cli/`, `package.json` `bin`): `enroll` (owner-only Ed25519 identity,
+   invitation never taken from argv and never spent if the identity can't be
+   saved), `whoami`, `mcp` (a stdio MCP server that forwards to the gateway
+   as the agent and refreshes its short-lived tokens, built on the MCP SDK's
+   client and server), and `admin invite | agents list/revoke/delete |
+   profiles list/delete`. (b) Admin listing and audited two-phase deletion:
+   `GET /admin/agents`, `GET /admin/profiles`, `DELETE /admin/profiles/:id`
+   and `DELETE /admin/agents/:id`, each needing a `?confirm=<id>`; deleting a
+   profile marks it `DELETING`, ends its lease, and lets the controller
+   remove the Pod, Service, worker Secret and PVC and drop the row only once
+   Kubernetes confirms they are gone (migration `002` lets the audit trail
+   outlive the row). (c) Leases now last two minutes and slide forward on
+   every successful call, and the MCP tools carry real descriptions and
+   server instructions, so an LLM client can use them without outside help.
+   Also hardened along the way: the bootstrap bearer token is compared in
+   constant time. Live-verified against the real cluster: a throwaway agent
+   enrolled through the CLI, drove a real profile to `READY` through the
+   stdio bridge with a real MCP client, browsed two real sites (including
+   across a gap longer than the old 30-second lease), and was then deleted
+   through the admin CLI in about 12 seconds with its Pod, Service, Secret,
+   PVC and PersistentVolume all confirmed gone and both audit rows present.
+   The same CLI then removed all 22 test agents left in the database (from
+   earlier sessions' live verification, plus the screenshot demo agents)
+   and their 4 stopped profiles.
+
+Still open: TLS in front of the gateway (see `docs/threat-model.md`).
 
 No OpenBao or password/TOTP automation is planned for the initial release.

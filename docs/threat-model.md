@@ -18,7 +18,8 @@
    everything else (a short-lived view ticket minted via an authenticated
    HTTP call), not a separate admin trust domain — there is no
    admin-specific dashboard yet, only the admin bootstrap/session auth in
-   `src/admin-auth.ts` used for invitation issuance and agent revocation.
+   `src/admin-auth.ts` used for invitation issuance, agent revocation, and
+   the admin list/delete operations below.
 
 ## Main threats and controls
 
@@ -27,6 +28,9 @@
 | Invitation theft/replay/race | 256-bit random verifier, keyed hash, expiry, transactional consume | Unit-tested; live-verified against PostgreSQL |
 | Agent identity spoofing | Ed25519 challenge proof; server derives agent UUID | Unit-tested; live-verified |
 | Compromised/leaked agent identity | Admin-triggered revocation (`POST /admin/agents/:id/revoke`); every authenticated request re-checks `revokedAt` | Unit-tested; live-verified: a valid unexpired token is rejected on the request immediately after revocation |
+| Destructive admin actions (profile/agent deletion) | Admin-only (bootstrap bearer or session+CSRF; an agent's own token is rejected); the request must repeat the target's id as `?confirm=`; profile deletion is two-phase — the request only marks the profile `DELETING` and ends its lease, and the controller then removes the Pod, Service, worker Secret and PVC and hard-deletes the row only once Kubernetes confirms all four are gone; a stale reconcile pass cannot overwrite `DELETING`, and a `DELETING` profile cannot be leased; an agent that still owns profiles cannot be deleted; each step writes an `audit_events` row (actor, action, target) that outlives the profile | Unit-tested (repository SQL flow, controller teardown gating, HTTP authorization/confirmation); live-verified against the real cluster |
+| Bootstrap-token guessing via timing | The admin bootstrap bearer token is compared in constant time (`AdminAuth.authenticateBootstrap`) | Unit-tested |
+| Agent private key theft from a client machine | The CLI writes an identity file owner-only (`0600`, in a `0700` directory) and never takes secrets from argv; MCP clients launch `burrowser mcp` as a subprocess and only ever see short-lived tokens, not the key | Unit/e2e-tested (file modes, invitation never consumed if the identity cannot be saved) |
 | Cross-tenant profile access | Ownership checks on every request; durable lease checks use the repository, not an in-memory map | Unit-tested; live-verified |
 | Lease split-brain | Durable exclusive lease and fencing generation | Unit-tested in-memory and against PostgreSQL; live-verified via real MCP client sessions |
 | Unauthenticated identity-endpoint DoS | Bounded/expiring challenge store (was previously unbounded) plus per-client-IP rate limiting on `/admin/login`, `/v1/identity/enroll`, `/v1/identity/challenge`, `/v1/identity/token` | Unit-tested; live-verified (flooded the live controller, got 429s after the configured limit) |
@@ -46,6 +50,10 @@ out of scope. The live-view dashboard has no server-side rate limit on
 view-ticket issuance beyond the general per-request lease/ownership check,
 and its WebSocket bridge (`src/ws-bridge.ts`) is a blind byte pipe with no
 awareness of the VNC protocol running over it — correctness there depends on
-`x11vnc` and the noVNC client, not on this codebase's own validation. Real
-WebAuthn/passkey ceremony support is not implemented; the corresponding MCP
-tool remains a stub that always throws.
+`x11vnc` and the noVNC client, not on this codebase's own validation. The gateway
+speaks plain HTTP and has no TLS of its own: admin and agent credentials are
+protected in transit only if the operator terminates TLS in front of it (and
+the CLI warns when it is about to send secrets over plain HTTP to a
+non-loopback address). A control lease now lasts two minutes and slides
+forward on every successful call, so a vanished client keeps a profile
+locked for up to that long.

@@ -21,6 +21,8 @@ npm install
 npm test
 ```
 
+The CLI is runnable from the checkout as `npm run cli -- --help`.
+
 `npm test` runs the full `node:test` suite (unit tests plus real-listener
 HTTP integration tests) for both the gateway (`tests/`) and the worker
 (`worker/src/*.test.ts`). This is also exactly what CI runs — if it's green

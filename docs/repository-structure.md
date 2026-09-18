@@ -30,6 +30,17 @@ src/                          controller/gateway (Node, run with --experimental-
   static-assets.ts              serves src/view.html and @novnc/novnc's ES modules
   view.html                     the live-view browser page (noVNC RFB client)
   url-policy.ts                 SSRF-resistant browser_navigate URL allowlist
+  errors.ts                     HttpError: an error carrying the HTTP status the gateway answers with
+
+  cli/                          the `burrowser` command line (package.json "bin"; `npm run cli -- ...`)
+    main.ts                       entry point: command dispatch, help, one-line error reporting
+    enroll.ts                     `enroll` (redeem an invitation, save an identity) and `whoami`
+    admin.ts                      `admin invite | agents list/revoke/delete | profiles list/delete`
+    mcp-bridge.ts                 `mcp`: stdio MCP server that forwards to the gateway as an agent
+    gateway.ts                    GatewayClient (JSON over fetch) + AgentSession (challenge/token refresh)
+    identity-store.ts             owner-only identity files (Ed25519 key) under ~/.config/burrowser
+    input.ts                      secrets from file/env/stdin/hidden prompt (never argv); delete confirmation
+    args.ts, cli-error.ts         strict option parsing and user-facing error type
 
 worker/                       hardened per-profile Playwright container (separate image)
   src/main.ts                    authenticated RPC server (navigate/snapshot/click/type/authStatus)
@@ -44,7 +55,7 @@ scripts/                       build-and-deploy-local.sh, backup/restore-postgre
                                 provision-postgres.ts, install-chromium-seccomp.sh
 tests/                         node:test unit + real-listener integration tests, plus tests/k8s/
                                 (disposable smoke-test manifests, not run by `npm test`)
-docs/                          architecture ADRs, threat model, progress log, runbooks
+docs/                          architecture ADRs and the original spec, threat model, runbooks
 ```
 
 ## Notable design choices worth knowing before editing
@@ -65,3 +76,17 @@ docs/                          architecture ADRs, threat model, progress log, ru
   individual API calls — creating a profile row is necessary but not
   sufficient; the next reconcile tick (default every 5s) is what actually
   provisions Kubernetes resources.
+- **Profile deletion is two-phase, and only an administrator can start it.**
+  `DELETE /admin/profiles/:id` (`PostgresRepository.requestProfileDeletion`)
+  marks the profile `DELETING` and ends its lease in one transaction; the
+  controller (`deleteProfileResources` in `reconcile.ts`, driven from
+  `ProfileController.reconcileOnce`) then removes the Pod, Service, worker
+  Secret and PVC, and calls `finalizeProfileDeletion` only once Kubernetes
+  reports all four gone. The PVC is otherwise never deleted by the
+  controller. `audit_events` rows are written at each step and, since
+  migration `002`, are not tied to the profile row by a foreign key so they
+  outlive it.
+- **Leases slide.** A control lease lasts `LEASE_TTL_MS` (two minutes) and
+  every successful worker-touching MCP call renews it (`dispatchTool` →
+  `renewLease`), which stands in for the heartbeat endpoint the original
+  spec sketched.

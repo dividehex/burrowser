@@ -34,6 +34,11 @@ gated by server-verified identity.
 - **Per-agent identity, no shared credentials.** Admin-issued single-use
   enrollment invitations; agents authenticate with an Ed25519 keypair, never
   a long-lived bearer token.
+- **A `burrowser` CLI.** `enroll` saves an owner-only identity, `mcp` runs a
+  stdio MCP bridge that any MCP client (Claude Code, OpenCode, ...) can
+  launch — it holds the key and refreshes short-lived tokens so the client
+  never has to — and `admin` covers invitations plus listing and deleting
+  agents and profiles. Secrets are never taken from argv.
 - **Named, persistent profiles.** `browser_profiles_create` /
   `browser_profiles_list` / `browser_profile_open` / `browser_profile_release`
   — each profile is its own Pod + Service + PVC, reconciled from durable
@@ -56,6 +61,10 @@ gated by server-verified identity.
   click-through, single-use-ticket-gated noVNC sessions and polled
   thumbnails — capped and visibility-gated, not a persistent stream per
   tile.
+- **Audited admin deletion.** Deleting a profile is two-phase: the gateway
+  marks it `DELETING` and ends its lease, then the controller removes the
+  Pod, Service, worker Secret and PVC and drops the row only once Kubernetes
+  confirms they're gone. The audit trail outlives the profile.
 - **Node-loss and stuck-reconciliation recovery**, per-client rate limiting,
   and PostgreSQL backup/restore tooling (`docs/runbooks/`).
 
@@ -64,20 +73,64 @@ what's still open.
 
 ## Usage
 
+Everything below is the `burrowser` CLI (`npm install`, then `npm link` to put
+it on your `PATH`, or run `./src/cli/main.ts` / `npm run cli --` from the
+checkout). The gateway address comes from `--url` or `BURROWSER_URL`; admin
+commands read the bootstrap token from `BURROWSER_ADMIN_BOOTSTRAP`,
+`--admin-token-file`, or `--admin-token-stdin` — never from a command-line
+argument.
+
+**Give an agent an identity.** An admin mints a single-use invitation and the
+agent redeems it; piping keeps it out of your shell history:
+
+```sh
+$ burrowser admin invite | burrowser enroll --name research-bot
+Enrolled "research-bot" as agent 4b2ce5a9-e2f4-c661-3ad5-bc3ebeb1b4b2
+Identity saved to ~/.config/burrowser/identities/research-bot.json (owner-only; it holds this agent's private key)
+
+$ burrowser whoami --identity research-bot
+"research-bot" (agent 4b2ce5a9-...) is authenticated to http://localhost:8080
+No profiles yet.
+```
+
+**Point an MCP client at it.** `burrowser mcp` is a stdio MCP server that
+forwards to the gateway as that agent:
+
+```sh
+claude mcp add burrowser -- burrowser mcp --identity research-bot
+```
+
+The agent then has the `browser_*` tools: create a profile, wait for it to be
+`READY`, take its lease with `browser_profile_open`, and navigate, snapshot,
+click and type. Each successful call keeps the lease alive.
+
+**Administer.** IDs may be any unique prefix of four or more characters, and
+`list` commands take `--json` for scripting:
+
+```sh
+burrowser admin agents list
+burrowser admin profiles list
+burrowser admin profiles delete bfc37f5c --yes --wait   # tears down the Pod, PVC and Secret, audited
+burrowser admin agents delete 4b2ce5a9 --yes            # refused while the agent still owns profiles
+```
+
+Without `--yes`, deletes ask you to type the target's id back. Run
+`burrowser --help` for the full list.
+
+<details>
+<summary>The same operations over raw HTTP</summary>
+
 ```
 $ curl -s -X POST https://gateway.internal/v1/profiles \
-    -H "Authorization: Bearer $AGENT_TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d '{"name":"research"}'
+    -H "Authorization: Bearer $AGENT_TOKEN" -H "x-agent-challenge: $CHALLENGE" \
+    -H 'Content-Type: application/json' -d '{"name":"research"}'
 
 {"id":"…","name":"research","state":"ABSENT","pvcName":"bw-…"}
 ```
-*(illustrative — real IDs are UUIDs) An authenticated agent creating a
-named, persistent browser profile via the REST API (the same operation is
-also exposed as the `browser_profiles_create` MCP tool). The controller
-then provisions a dedicated Pod/PVC/Service for it in Kubernetes and
-reconciles it through to `READY` — that's the profile that would show up
-as a tile in the screenshot above.*
+*(illustrative — real IDs are UUIDs.)* Access tokens are short-lived and bound
+to a signed challenge, which is exactly what the CLI's `AgentSession` handles
+for you (`src/cli/gateway.ts`).
+</details>
 
 ## Quick start
 
@@ -133,6 +186,8 @@ request, MCP call, and WebSocket upgrade. See
 [`docs/threat-model.md`](docs/threat-model.md) for the full asset/trust-boundary
 breakdown and mitigation table. No OpenBao integration or password/TOTP
 automation is included — passkeys are the only supported credential type.
+The gateway speaks plain HTTP, so terminate TLS in front of it; the CLI
+warns before sending credentials over plain HTTP to a non-loopback address.
 
 ## Documentation
 

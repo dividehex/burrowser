@@ -18,6 +18,9 @@
 #         insecure_skip_verify: true
 #   YAML
 #   sudo systemctl restart k3s
+#
+# Extra arguments are passed straight to helm, e.g. to expose the Service through the k3s
+# load balancer:  ./scripts/build-and-deploy-local.sh --set service.type=LoadBalancer
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,6 +45,7 @@ helm upgrade --install "$RELEASE" charts/burrowser -n "$NAMESPACE" \
   --set workerImage.digest="$worker_digest" \
   --set workerImage.pullPolicy=IfNotPresent \
   --set postgres.enabled=true \
-  --set postgres.secretName=burrowser-postgres
+  --set postgres.secretName=burrowser-postgres \
+  "$@"
 
 kubectl rollout status deployment/burrowser-controller -n "$NAMESPACE"

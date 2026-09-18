@@ -19,17 +19,20 @@
 >   "with authenticated TLS." That was never built — the gateway is plain
 >   `node:http`. This is a real, currently open gap, not an oversight in
 >   this note.
-> - **No enrollment CLI.** "Agent enrollment and authentication" below
->   describes an `agent-browser enroll --url ... --invitation ...` CLI.
->   It was never built; enrollment today means calling the raw HTTP
->   identity endpoints directly.
-> - **No admin profile-delete endpoint.** "Administrative APIs" below
->   specifies `DELETE /admin/profiles/{id}` with audited two-phase
->   deletion. It doesn't exist — there is currently no way to delete a
->   profile through the API at all, only through direct database/`kubectl`
->   surgery. Everything else listed under "Administrative APIs" and
->   `/v1/...` exists, except `POST /v1/profiles/{id}/heartbeat`, which was
->   also never built.
+> - **The enrollment CLI was built, with a different shape.** "Agent
+>   enrollment and authentication" below describes an `agent-browser enroll
+>   --url ... --invitation ...` CLI. It now exists as `burrowser enroll`
+>   (`src/cli/`): the invitation is a single `<id>.<secret>` token printed by
+>   `burrowser admin invite` and is read from a file, piped stdin or a
+>   hidden prompt, never argv. The "local MCP stdio adapter" sketched there
+>   is `burrowser mcp`. Neither existed when this document was written.
+> - **Admin profile deletion was built.** "Administrative APIs" below
+>   specifies `DELETE /admin/profiles/{id}` with audited two-phase deletion;
+>   it now exists (with a mandatory `?confirm=<id>`), alongside
+>   `GET /admin/agents`, `GET /admin/profiles` and `DELETE /admin/agents/{id}`
+>   (not in the original list). `POST /v1/profiles/{id}/heartbeat` was
+>   never built: instead a lease lasts two minutes and every successful
+>   worker-touching MCP call slides it forward.
 > - **Repository structure differs.** "Repository suggested structure"
 >   below sketches a Go-style `cmd/`/`internal/` layout. The actual
 >   layout is a flat `src/`/`worker/src/` TypeScript tree — see
