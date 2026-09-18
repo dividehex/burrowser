@@ -33,8 +33,13 @@ Burrowser decides only:
   agent never handles leases or fencing.
 - **Which tool names are switched off**, from a plain exclude list (`mcp.excludeTools`).
   Nothing is excluded by default.
-- **Two additions**: `browser_passkey_enrollment_request` and `browser_passkey_status`,
-  because the supervised WebAuthn ceremony has no Playwright MCP equivalent.
+- **Three additions**: `browser_passkey_enrollment_request` and `browser_passkey_status`,
+  because the supervised WebAuthn ceremony has no Playwright MCP equivalent, and
+  `browser_shutdown`, because Playwright MCP's `browser_close` only closes a page and an
+  agent that is finished has no other way to end its worker. It marks the profile for
+  shutdown and the controller stops it through the same path as idle reclaim (SIGTERM,
+  which closes Chromium normally). Any later call restarts the profile, and cancels a
+  shutdown that has not happened yet.
 
 `burrowser mcp --profile NAME` is the client side: it binds a profile (created on first use),
 authenticates, and exposes exactly the proxied tool set over stdio.

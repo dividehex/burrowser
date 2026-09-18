@@ -26,7 +26,7 @@ src/                          controller/gateway (Node, run with --experimental-
   mcp.ts                        session lease (profileLease), readiness wait, WorkerPort/DurableProfileStore types
   mcp-http.ts                   MCP Streamable HTTP endpoint: x-burrowser-profile header -> lease + wait for browser + proxy
   mcp-proxy.ts                  the MCP proxy: tools/list + tools/call pass through to the worker's Playwright MCP
-                                 untouched (exclude list, passkey tools, bounded connect retry)
+                                 untouched (exclude list, passkey and shutdown tools, bounded connect retry)
   view-tickets.ts               single-use tickets gating the live-view WebSocket upgrade
   ws-bridge.ts                  ws-based WebSocket<->TCP bridge to a worker's VNC port
   static-assets.ts              serves src/view.html and @novnc/novnc's ES modules

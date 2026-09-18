@@ -156,7 +156,7 @@
    browser context (`createConnection(config, contextGetter)`), and the
    gateway is an authenticating, lease-holding proxy that forwards
    `tools/list` and `tools/call` untouched, with a configurable exclude list
-   (`mcp.excludeTools`, empty by default) and two added passkey tools.
+   (`mcp.excludeTools`, empty by default) and three added tools (two for passkeys, `browser_shutdown`).
    `burrowser mcp` binds a profile (default: the identity's name, created on
    first use) and takes care of authentication; the gateway holds the lease
    for the session, waits for the browser, and restarts a stopped profile.

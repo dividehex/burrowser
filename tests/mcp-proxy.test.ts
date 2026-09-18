@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { profileLease, waitUntilUsable } from '../src/mcp.ts';
-import { connectWorkerMcp, PASSKEY_TOOLS } from '../src/mcp-proxy.ts';
+import { connectWorkerMcp, PASSKEY_TOOLS, SHUTDOWN_TOOL } from '../src/mcp-proxy.ts';
 import { createServer } from 'node:net';
 import { createGateway, makeState, parseToolList } from '../src/server.ts';
 import { FAKE_TOOLS, SCREENSHOT, SNAPSHOT_TEXT, startFakePlaywrightWorker } from './helpers/fake-playwright-worker.ts';
@@ -53,7 +53,7 @@ test('a session is the profile\'s Playwright MCP server: tools, arguments and re
     const { client } = await t.connect(agent);
     const listed = (await client.listTools()).tools;
     for (const fake of FAKE_TOOLS) assert.deepEqual(listed.find(tool => tool.name === fake.name), { ...fake }, `${fake.name} keeps its name, description and schema exactly`);
-    assert.deepEqual(listed.filter(tool => !FAKE_TOOLS.some(fake => fake.name === tool.name)).map(tool => tool.name), PASSKEY_TOOLS.map(tool => tool.name), 'the only additions are Burrowser\'s passkey tools');
+    assert.deepEqual(listed.filter(tool => !FAKE_TOOLS.some(fake => fake.name === tool.name)).map(tool => tool.name), [...PASSKEY_TOOLS, SHUTDOWN_TOOL].map(tool => tool.name), 'the only additions are Burrowser\'s passkey and shutdown tools');
 
     const nav: any = await client.callTool({ name: 'browser_navigate', arguments: { url: 'https://example.com' } });
     assert.deepEqual(nav.content, [{ type: 'text', text: '### Page\n- Page URL: https://example.com' }]);
@@ -104,6 +104,30 @@ test('passkey tools are answered by the worker\'s RPC, not the browser', async (
     assert.equal(t.worker.calls.length, 0, 'the browser was never asked');
     await client.close();
   } finally { await t.teardown(); }
+});
+
+test('browser_shutdown asks for the profile to be stopped without touching the browser, and can be switched off', async () => {
+  const t = await setup();
+  try {
+    const agent = await enrollAgent(t.call, 'a');
+    const { client } = await t.connect(agent);
+    t.state.profiles.get(agent.profile.id)!.state = 'READY';
+    const result: any = await client.callTool({ name: 'browser_shutdown', arguments: {} });
+    assert.notEqual(result.isError, true);
+    assert.match(result.content[0].text, /Shutdown requested/);
+    assert.equal(t.state.profiles.get(agent.profile.id)!.state, 'STOPPED');
+    assert.equal(t.worker.calls.length, 0, 'the browser was never asked');
+    await client.close();
+  } finally { await t.teardown(); }
+
+  const off = await setup({ excluded: 'browser_shutdown' });
+  try {
+    const { client } = await off.connect(await enrollAgent(off.call, 'b'));
+    assert.equal((await client.listTools()).tools.some(tool => tool.name === 'browser_shutdown'), false);
+    const refused: any = await client.callTool({ name: 'browser_shutdown', arguments: {} });
+    assert.equal(refused.isError, true);
+    await client.close();
+  } finally { await off.teardown(); }
 });
 
 test('a session must name one of the caller\'s own profiles, and only the caller may continue it', async () => {

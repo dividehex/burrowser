@@ -17,9 +17,10 @@ export type DurableProfileStore = {
   listProfiles(agentId: string): Promise<Profile[]>;
   acquireLease(profileId: string, agentId: string, clientId: string, now: Date): Promise<Lease>;
   releaseLease(profileId: string, clientId: string, generation: number, now: Date): Promise<void>;
+  requestProfileStop(profileId: string, agentId: string): Promise<void>;
 };
 
-export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfiles' | 'acquireLease' | 'releaseLease'>): DurableProfileStore {
+export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfiles' | 'acquireLease' | 'releaseLease' | 'requestProfileStop'>): DurableProfileStore {
   return repository;
 }
 
@@ -33,6 +34,13 @@ export async function findOwnedProfile(store: ProfileStore | DurableProfileStore
   if (isDurable(store)) return (await store.listProfiles(agentId)).find(candidate => candidate.id === profileId);
   const profile = store.profiles.get(profileId);
   return profile && profile.agentId === agentId ? profile : undefined;
+}
+
+/** Asks for the profile's browser to be shut down cleanly. A durable profile is stopped by the controller; one with no controller just stops. */
+export async function requestProfileStop(store: ProfileStore | DurableProfileStore, agentId: string, profile: Profile): Promise<void> {
+  if (isDurable(store)) return store.requestProfileStop(profile.id, agentId);
+  const held = store.profiles.get(profile.id);
+  if (held && held.agentId === agentId) held.state = 'STOPPED';
 }
 
 /**

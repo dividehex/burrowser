@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport, type EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import { findOwnedProfile, profileLease, waitUntilUsable, type DurableProfileStore, type WorkerPort } from './mcp.ts';
+import { findOwnedProfile, profileLease, requestProfileStop, waitUntilUsable, type DurableProfileStore, type WorkerPort } from './mcp.ts';
 import { createProxyServer, type WorkerMcpTarget } from './mcp-proxy.ts';
 import type { Agent } from './identity.ts';
 import type { Profile, ProfileStore } from './profiles.ts';
@@ -110,6 +110,7 @@ export async function handleMcpHttp(req: any, res: any, options: McpHttpOptions)
     proxy = await createProxyServer({
       target: await options.workerMcpForProfile(ready),
       worker: options.workerForProfile ? await options.workerForProfile(ready) : undefined,
+      shutdown: () => requestProfileStop(options.store, options.agent.id, ready),
       lease,
       excludedTools: options.excludedTools,
     });

@@ -20,8 +20,18 @@ test('acquiring a lease moves a STOPPED profile to ABSENT (and leaves every othe
   const client = new FakeClient([{ rows: [{ id: 'p' }] }, { rows: [] }, { rows: [lease] }]);
   await new PostgresRepository({ async connect() { return client; } } as DbPool).acquireLease('p', 'a', 'c', new Date());
   const update = client.calls.find(call => call.startsWith('UPDATE profiles SET last_used_at'))!;
-  assert.match(update, /state = CASE WHEN state = 'STOPPED' THEN 'ABSENT' ELSE state END/);
+  assert.match(update, /state = CASE WHEN state IN \('STOPPED', 'DRAINING'\) THEN 'ABSENT' ELSE state END/);
   assert.match(client.calls[1], /FOR UPDATE/, 'the profile row is locked before the state is changed');
+});
+
+test('an agent can only request a stop for its own live profile, and a stale reconcile pass cannot undo the request', async () => {
+  const client = new FakeClient([{ rows: [] }, { rows: [] }]);
+  const repository = new PostgresRepository({ async connect() { return client; }, async query(text: string) { return client.query(text); } } as unknown as DbPool);
+  await repository.requestProfileStop('p', 'a');
+  await repository.updateProfileState('p', 'READY');
+  const [stop, update] = client.calls;
+  assert.match(stop, /SET state = 'DRAINING' WHERE id = \$1 AND agent_id = \$2 .*state IN \('STARTING', 'READY', 'IDLE'\)/);
+  assert.match(update, /\(state <> 'DRAINING' OR \$2 = 'STOPPED'\)/);
 });
 
 test('the controller does not re-persist an unchanged STOPPED profile, so it cannot clobber a restart requested mid-pass', async () => {

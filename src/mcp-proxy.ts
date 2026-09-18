@@ -27,9 +27,18 @@ export const PASSKEY_TOOLS: Tool[] = [
 ];
 const PASSKEY_TOOL_NAMES = new Set(PASSKEY_TOOLS.map(tool => tool.name));
 
+/** Lets an agent that is finished end its own browser: Playwright MCP's browser_close only closes a page. */
+export const SHUTDOWN_TOOL: Tool = {
+  name: 'browser_shutdown',
+  description: 'Shut this profile\'s browser down cleanly when you are completely finished with it. Chromium closes normally and the worker stops within a few seconds; cookies, logins and passkeys are kept, and the browser starts again by itself the next time any browser tool is called (which also cancels a shutdown that has not happened yet). Do not call this between steps of a task.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+};
+
 export type ProxyOptions = {
   target: WorkerMcpTarget;
   worker?: WorkerPort;
+  /** Asks for this profile's browser to be shut down; without it browser_shutdown is not offered. */
+  shutdown?: () => Promise<void>;
   /** Called before every forwarded call; throws if this session no longer holds the profile. */
   lease: { ensure(): Promise<void> };
   /** Tool names this gateway refuses to offer or run. */
@@ -94,7 +103,7 @@ export async function createProxyServer(options: ProxyOptions): Promise<{ server
       tools.push(...page.tools);
       cursor = page.nextCursor;
     } while (cursor);
-    return { tools: [...tools, ...(options.worker ? PASSKEY_TOOLS : [])].filter(tool => !options.excludedTools.has(tool.name)) };
+    return { tools: [...tools, ...(options.worker ? PASSKEY_TOOLS : []), ...(options.shutdown ? [SHUTDOWN_TOOL] : [])].filter(tool => !options.excludedTools.has(tool.name)) };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async request => {
@@ -102,6 +111,12 @@ export async function createProxyServer(options: ProxyOptions): Promise<{ server
     if (options.excludedTools.has(name)) return failure(`${name} is switched off on this Burrowser gateway`);
     try { await options.lease.ensure(); }
     catch (error) { return failure(error instanceof Error ? error.message : 'the profile is not available'); }
+
+    if (name === SHUTDOWN_TOOL.name && options.shutdown) {
+      try { await options.shutdown(); }
+      catch (error) { return failure(error instanceof Error ? error.message : 'shutdown request failed'); }
+      return { content: [{ type: 'text', text: 'Shutdown requested: the browser will close cleanly and its worker will stop within a few seconds. Your profile is kept; calling any browser tool again starts it.' }] };
+    }
 
     if (PASSKEY_TOOL_NAMES.has(name)) {
       if (!options.worker) return failure('passkey tools are unavailable');

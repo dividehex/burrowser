@@ -40,3 +40,16 @@ test('controller resets a profile stuck in STARTING after the timeout, then retr
   await controller.reconcileOnce(400_001);
   assert.equal(profile.state, 'STARTING', 'a fresh pod is scheduled on the next cycle');
 });
+
+test('controller stops a profile an agent asked to shut down: Pod and Service go, the PVC stays, and it ends STOPPED without being reconciled', async () => {
+  const profile: any = { id: 'p', agentId: 'a', name: 'Main', pvcName: 'bw-p', state: 'DRAINING', createdAt: 0, lastUsedAt: Date.now() };
+  const deleted: string[] = []; const persisted: string[] = []; let secretCalls = 0;
+  const kube: any = { get: async () => undefined, apply: async () => { throw new Error('must not reconcile a draining profile'); }, delete: async (kind: string, name: string) => { deleted.push(`${kind}/${name}`); }, podStatus: async () => undefined };
+  const controller = new ProfileController({
+    state: { async listProfiles() { return [profile]; }, async listLeases() { return []; }, async updateProfileState(_id: string, state: string) { persisted.push(state); } },
+    secrets: { async get() { secretCalls++; throw new Error('not called'); } }, kube, workerImage: 'unused',
+  });
+  await controller.reconcileOnce();
+  assert.deepEqual(deleted, ['pod/bw-p', 'service/bw-p']);
+  assert.equal(profile.state, 'STOPPED'); assert.deepEqual(persisted, ['STOPPED']); assert.equal(secretCalls, 0);
+});

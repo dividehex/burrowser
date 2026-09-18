@@ -45,12 +45,15 @@ own, unwrapped, running on that persistent profile.
   accessibility snapshots with element refs, click/type/fill by ref, key
   presses, tabs, dialogs, screenshots, evaluate — because it *is* Playwright
   MCP, served from inside the profile's Pod and proxied through the gateway.
-  Burrowser adds only two passkey tools, and lets an operator switch
-  individual tools off (`mcp.excludeTools` in the chart).
+  Burrowser adds only three tools (two for passkeys, and `browser_shutdown`
+  so an agent that is finished can end its own browser), and lets an
+  operator switch individual tools off (`mcp.excludeTools` in the chart).
 - **Named, persistent profiles.** Each profile is its own Pod + Service +
   PVC, reconciled from durable PostgreSQL state, not an in-memory map. A
-  profile reclaimed for idleness restarts, with its storage, the next time an
-  agent connects to it.
+  profile reclaimed for idleness, or shut down by its agent with
+  `browser_shutdown`, restarts with its storage the next time an agent
+  connects to it. Either way Chromium is closed normally, so the profile is
+  not left marked as crashed.
 - **Real WebAuthn passkeys.** A supervised enrollment ceremony
   (`browser_passkey_enrollment_request` / `browser_passkey_status`) drives
   Playwright's virtual-authenticator API; credentials are stored
@@ -113,7 +116,8 @@ agent then has Playwright MCP's own tools — `browser_navigate`,
 `browser_click`, `browser_type`, `browser_tabs`, `browser_take_screenshot` and
 the rest — with nothing about profiles or leases to manage, plus
 `browser_passkey_enrollment_request` / `browser_passkey_status` for the
-supervised passkey ceremony. To switch tools off, set `mcp.excludeTools`
+supervised passkey ceremony, and `browser_shutdown` to end the browser when
+the agent is finished. To switch tools off, set `mcp.excludeTools`
 (comma-separated names) in the chart; `mcp.capabilities` chooses which of
 Playwright MCP's tool groups exist (`core` by default).
 

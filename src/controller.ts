@@ -1,5 +1,5 @@
 import type { Lease, Profile, ProfileStore } from './profiles.ts';
-import { deleteProfileResources, reclaimIdleProfiles, reclaimStuckProfiles, reconcileProfile, type KubernetesPort } from './reconcile.ts';
+import { deleteProfileResources, reclaimIdleProfiles, reclaimStuckProfiles, reconcileProfile, stopProfile, type KubernetesPort } from './reconcile.ts';
 import type { WorkerSecretMaterial } from './kube.ts';
 
 export type ControllerStateSource = {
@@ -32,6 +32,7 @@ export class ProfileController {
         if (await deleteProfileResources(profile, this.options.kube)) await this.options.state.finalizeProfileDeletion?.(profile.id);
         continue;
       }
+      if (profile.state === 'DRAINING') { await stopProfile(profile, this.options.kube); continue; }
       if (profile.state === 'STOPPED') continue;
       const workerSecret = this.options.secrets.ensure ? await this.options.secrets.ensure(profile) : await this.options.secrets.get(profile);
       await reconcileProfile(profile, this.options.kube, this.options.workerImage, workerSecret);

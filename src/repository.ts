@@ -127,8 +127,14 @@ export class PostgresRepository {
   }
 
   async updateProfileState(profileId: string, state: string): Promise<void> {
-    // A reconcile pass that started before an admin requested deletion must not overwrite DELETING.
-    await this.poolQuery("UPDATE profiles SET state = $2 WHERE id = $1 AND deleted_at IS NULL AND state <> 'DELETING'", [profileId, state]);
+    // A reconcile pass that started before an admin requested deletion must not overwrite DELETING, nor one
+    // that started before an agent asked for a shutdown overwrite DRAINING (only the stop itself may).
+    await this.poolQuery("UPDATE profiles SET state = $2 WHERE id = $1 AND deleted_at IS NULL AND state <> 'DELETING' AND (state <> 'DRAINING' OR $2 = 'STOPPED')", [profileId, state]);
+  }
+
+  /** An agent asking for its profile's browser to be shut down: the controller stops it on its next pass. */
+  async requestProfileStop(profileId: string, agentId: string): Promise<void> {
+    await this.poolQuery("UPDATE profiles SET state = 'DRAINING' WHERE id = $1 AND agent_id = $2 AND deleted_at IS NULL AND state IN ('STARTING', 'READY', 'IDLE')", [profileId, agentId]);
   }
 
   async listControllerLeases(): Promise<Lease[]> {
@@ -154,9 +160,10 @@ export class PostgresRepository {
         'INSERT INTO control_leases (profile_id, owner_client_id, fencing_generation, expires_at) VALUES ($1, $2, $3, $4) ON CONFLICT (profile_id) DO UPDATE SET owner_client_id = EXCLUDED.owner_client_id, fencing_generation = EXCLUDED.fencing_generation, expires_at = EXCLUDED.expires_at RETURNING profile_id, owner_client_id, fencing_generation, expires_at',
         [profileId, clientId, generation, expiresAt],
       )).rows[0];
-      // Opening a profile whose browser was reclaimed for idleness brings it back: the controller only
-      // reconciles non-STOPPED profiles, so hand it back as ABSENT and it re-provisions on the next tick.
-      await client.query("UPDATE profiles SET last_used_at = $2, state = CASE WHEN state = 'STOPPED' THEN 'ABSENT' ELSE state END WHERE id = $1", [profileId, now]);
+      // Opening a profile whose browser was stopped (idle, or shut down by its agent) brings it back: the
+      // controller only reconciles non-STOPPED profiles, so hand it back as ABSENT and it re-provisions on the
+      // next tick. A shutdown the controller has not carried out yet (DRAINING) is cancelled the same way.
+      await client.query("UPDATE profiles SET last_used_at = $2, state = CASE WHEN state IN ('STOPPED', 'DRAINING') THEN 'ABSENT' ELSE state END WHERE id = $1", [profileId, now]);
       if (!row) throw new Error('lease acquisition failed');
       return leaseFromRow(row);
     });
