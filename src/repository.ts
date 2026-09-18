@@ -228,17 +228,6 @@ export class PostgresRepository {
     });
   }
 
-  /** Slide an existing lease's expiry forward; a no-op if the caller no longer holds it. */
-  async renewLease(profileId: string, clientId: string, generation: number, now: Date, ttlMs = LEASE_TTL_MS): Promise<void> {
-    await this.transaction(async client => {
-      const renewed = await client.query(
-        'UPDATE control_leases SET expires_at = $4 WHERE profile_id = $1 AND owner_client_id = $2 AND fencing_generation = $3 AND expires_at > $5',
-        [profileId, clientId, generation, new Date(now.getTime() + ttlMs), now],
-      );
-      if (renewed.rowCount) await client.query('UPDATE profiles SET last_used_at = $2 WHERE id = $1', [profileId, now]);
-    });
-  }
-
   private async audit(client: DbClient, actor: AuditActor | 'controller', action: string, profileId: string | null, subjectId?: string) {
     await client.query(
       'INSERT INTO audit_events (actor_type, actor_id, action, profile_id, subject_id, outcome) VALUES ($1, $2, $3, $4, $5, $6)',

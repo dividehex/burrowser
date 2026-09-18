@@ -9,6 +9,7 @@ import { serveViewPage, serveNovncAsset, serveAdminDashboardPage } from './stati
 import { postgresRuntimeSource, inMemoryRuntimeSource, liveRuntimes, writeSnapshot, pollRuntimes, type AdminRuntime } from './admin-runtimes.ts';
 import { acquireLease, createProfile, ownedProfile, releaseLease, type ProfileStore } from './profiles.ts';
 import { handleMcpHttp, type McpSession } from './mcp-http.ts';
+import type { WorkerMcpTarget } from './mcp-proxy.ts';
 import { AdminAuth } from './admin-auth.ts';
 import type { PostgresRepository } from './repository.ts';
 import { createPostgresRepository } from './postgres.ts';
@@ -18,13 +19,16 @@ import { postgresMcpStore } from './mcp.ts';
 import type { WorkerPort } from './mcp.ts';
 import type { Profile } from './profiles.ts';
 import { KubernetesWorkerSecretProvider } from './worker-secrets.ts';
-import { HttpWorkerClient } from './worker-client.ts';
+import { HttpWorkerClient, workerMcpUrl } from './worker-client.ts';
 import { HttpError } from './errors.ts';
 
 export type AppState = Store & ProfileStore & { challenges: ChallengeStore };
 export function makeState(): AppState { return { invitations: new Map(), agents: new Map(), profiles: new Map(), leases: new Map(), challenges: new Map() }; }
 const json = (res: any, status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
 async function body(req: any) { let data = ''; for await (const chunk of req) data += chunk; if (data.length > 64 * 1024) throw new Error('request too large'); return JSON.parse(data || '{}'); }
+
+/** "a,b, c" -> {a, b, c}: the tool names an operator has switched off. */
+export const parseToolList = (value: string | undefined): ReadonlySet<string> => new Set((value ?? '').split(',').map(name => name.trim()).filter(Boolean));
 
 function listAgentsInMemory(state: AppState) {
   return [...state.agents.values()].map(agent => ({ id: agent.id, displayName: agent.displayName, status: agent.revokedAt ? 'revoked' : 'active', profileCount: [...state.profiles.values()].filter(profile => profile.agentId === agent.id).length }));
@@ -50,7 +54,7 @@ const RATE_LIMITS: Record<string, { points: number; duration: number }> = {
   '/v1/identity/token': { points: 30, duration: 60 },
 };
 
-export function createGateway(state = makeState(), adminToken = process.env.BURROWSER_ADMIN_BOOTSTRAP, tokenSigningKey = process.env.BURROWSER_TOKEN_KEY ?? 'development-only-change-me', repository?: PostgresRepository, workerForProfile?: (profile: Profile) => Promise<WorkerPort>, viewSecretsForProfile?: (profile: Profile) => Promise<{ vncPassword: string }>, viewTargetForProfile?: (profileId: string) => { host: string; port: number }, runtimeEventIntervalMs = 2000) {
+export function createGateway(state = makeState(), adminToken = process.env.BURROWSER_ADMIN_BOOTSTRAP, tokenSigningKey = process.env.BURROWSER_TOKEN_KEY ?? 'development-only-change-me', repository?: PostgresRepository, workerForProfile?: (profile: Profile) => Promise<WorkerPort>, viewSecretsForProfile?: (profile: Profile) => Promise<{ vncPassword: string }>, viewTargetForProfile?: (profileId: string) => { host: string; port: number }, runtimeEventIntervalMs = 2000, workerMcpForProfile?: (profile: Profile) => Promise<WorkerMcpTarget>, mcpExcludedTools: ReadonlySet<string> = parseToolList(process.env.BURROWSER_MCP_EXCLUDE_TOOLS)) {
   const mcpSessions = new Map<string, McpSession>();
   const adminAuth = new AdminAuth(adminToken);
   const rateLimiters = new Map(Object.entries(RATE_LIMITS).map(([path, options]) => [path, new RateLimiterMemory(options)]));
@@ -187,7 +191,7 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
       const agent = repository ? await repository.findAgent(claims!.sub) : verifyAccessToken(state, auth, challenge, tokenSigningKey);
       if (!agent || agent.revokedAt) throw new Error('invalid token');
       if (url.pathname === '/mcp') {
-        return handleMcpHttp(req, res, { store: repository ? postgresMcpStore(repository) : state, agent, sessions: mcpSessions, workerForProfile, allowedOrigins: process.env.BURROWSER_ALLOWED_ORIGIN ? [process.env.BURROWSER_ALLOWED_ORIGIN] : undefined });
+        return handleMcpHttp(req, res, { store: repository ? postgresMcpStore(repository) : state, agent, sessions: mcpSessions, workerForProfile, workerMcpForProfile, excludedTools: mcpExcludedTools, allowedOrigins: process.env.BURROWSER_ALLOWED_ORIGIN ? [process.env.BURROWSER_ALLOWED_ORIGIN] : undefined });
       }
       if (req.method === 'GET' && url.pathname === '/v1/profiles') return json(res, 200, { profiles: repository ? await repository.listProfiles(agent.id) : [...state.profiles.values()].filter(p => p.agentId === agent.id) });
       if (req.method === 'POST' && url.pathname === '/v1/profiles') {
@@ -243,6 +247,7 @@ async function startProductionGateway() {
   const database = process.env.DATABASE_URL ? createPostgresRepository() : undefined;
   let workerForProfile: ((profile: Profile) => Promise<WorkerPort>) | undefined;
   let viewSecretsForProfile: ((profile: Profile) => Promise<{ vncPassword: string }>) | undefined;
+  let workerMcpForProfile: ((profile: Profile) => Promise<WorkerMcpTarget>) | undefined;
   let controller: ReturnType<typeof createPostgresKubernetesController> | undefined;
   if (database && process.env.KUBERNETES_SERVICE_HOST) {
     const kube = new KubernetesApiClient(inClusterKubernetesOptions());
@@ -251,9 +256,10 @@ async function startProductionGateway() {
     const secrets = new KubernetesWorkerSecretProvider(kube);
     workerForProfile = async profile => new HttpWorkerClient(profile.id, (await secrets.ensure(profile)).controllerCredential);
     viewSecretsForProfile = async profile => secrets.ensure(profile);
+    workerMcpForProfile = async profile => ({ url: workerMcpUrl(profile.id), credential: (await secrets.ensure(profile)).controllerCredential });
     controller = createPostgresKubernetesController(database.repository, kube, workerImage);
   }
-  const server = createGateway(makeState(), undefined, undefined, database?.repository, workerForProfile, viewSecretsForProfile);
+  const server = createGateway(makeState(), undefined, undefined, database?.repository, workerForProfile, viewSecretsForProfile, undefined, undefined, workerMcpForProfile);
   server.listen(Number(process.env.PORT ?? 8080));
   if (controller) {
     controller.start();

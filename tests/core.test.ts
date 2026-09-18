@@ -4,9 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { issueInvitation, redeemInvitation, verifyAccessToken, issueAccessToken, revokeAgent, issueChallengeFor, peekChallenge, type ChallengeStore } from '../src/identity.ts';
 import { acquireLease, createProfile } from '../src/profiles.ts';
 import { workerResources, workerSecretResource } from '../src/kube.ts';
-import { validateBrowserUrl } from '../src/url-policy.ts';
 import { reconcileProfile, reclaimIdleProfiles, reclaimStuckProfiles, stopProfile } from '../src/reconcile.ts';
-import { dispatchTool, MCP_TOOLS } from '../src/mcp.ts';
 
 const keys = () => generateKeyPairSync('ed25519');
 const pub = (key: any) => key.export({ format: 'der', type: 'spki' }).toString('base64url');
@@ -44,7 +42,6 @@ test('every worker Pod carries bounded CPU/memory requests and limits, so one ru
   assert.ok(resources.limits?.cpu && resources.limits?.memory, 'limits must be set so a single session cannot exhaust node capacity');
 });
 test('worker credentials are delivered through a Kubernetes Secret, not pod arguments', () => { const p: any = { id: 'abc', pvcName: 'bw-abc' }; const secret: any = workerSecretResource(p, { controllerCredential: 'controller', authenticatorKey: 'key', vncPassword: 'vncpass' }); assert.equal(secret.stringData.WORKER_CONTROLLER_CREDENTIAL, 'controller'); assert.equal(secret.stringData.BURROWSER_AUTHENTICATOR_KEY, 'key'); assert.equal(secret.stringData.BURROWSER_VNC_PASSWORD, 'vncpass'); assert.equal(JSON.stringify(workerResources(p, `ghcr.io/x/worker@sha256:${'a'.repeat(64)}`)).includes('controller'), false); });
-test('browser URL policy rejects local and credential-bearing destinations', () => { assert.throws(() => validateBrowserUrl('http://127.0.0.1:8080')); assert.throws(() => validateBrowserUrl('http://172.20.0.1')); assert.throws(() => validateBrowserUrl('http://100.64.0.1')); assert.throws(() => validateBrowserUrl('http://[fd00::1]')); assert.throws(() => validateBrowserUrl('http://[fe80::1]')); assert.throws(() => validateBrowserUrl('https://u:p@example.com')); assert.equal(validateBrowserUrl('https://example.com/path'), 'https://example.com/path'); });
 test('reconciliation is idempotent and pod shutdown preserves PVC', async () => {
   const p: any = { id: 'abc', pvcName: 'bw-abc', state: 'ABSENT' }; const objects = new Map(); const operations: string[] = [];
   const kube: any = { get: async (kind: string, name: string) => objects.get(`${kind}/${name}`), apply: async (kind: string, name: string, value: unknown) => { operations.push(`apply:${kind}`); objects.set(`${kind}/${name}`, value); }, delete: async (kind: string, name: string) => { operations.push(`delete:${kind}`); objects.delete(`${kind}/${name}`); }, podStatus: async () => ({ phase: 'Running', ready: true }) };
@@ -67,12 +64,4 @@ test('stuck reclamation only fires after the grace period, tracks per profile, a
   assert.equal(await reclaimStuckProfiles(store, kube, stuckSince, 350_000, 300_000), 1, 'only the profile whose grace period actually elapsed is reclaimed');
   assert.equal(stuck.state, 'FAILED'); assert.equal(objects.has('pvc/bw-s'), true); assert.equal(objects.has('pod/bw-s'), false);
   assert.equal(stuckSince.has('s'), false, 'cleared once reclaimed'); assert.equal(fresh.state, 'STARTING'); assert.equal(ready.state, 'READY');
-});
-test('MCP is allowlisted, tenant scoped, and lease gated', async () => {
-  const store: any = { profiles: new Map(), leases: new Map() }; const agent: any = { id: 'a' }; const other: any = { id: 'b' }; const profile = await dispatchTool(store, agent, undefined, 'browser_profiles_create', { name: 'Main' });
-  assert.equal(MCP_TOOLS.includes('browser_navigate'), true); assert.equal((await dispatchTool(store, agent, undefined, 'browser_profiles_list', {})).length, 1); assert.equal((await dispatchTool(store, other, undefined, 'browser_profiles_list', {})).length, 0);
-  const lease: any = await dispatchTool(store, agent, undefined, 'browser_profile_open', { profile_id: profile.id, client_id: 'c' });
-  const worker: any = { navigate: async (url: string) => url, snapshot: async () => ({ text: 'safe' }), click: async () => ({}), type: async () => ({}), authStatus: async () => ({ authenticated: false }) };
-  assert.equal(await dispatchTool(store, agent, worker, 'browser_navigate', { profile_id: profile.id, client_id: 'c', fencing_generation: lease.fencingGeneration, url: 'https://example.com' }), 'https://example.com/');
-  await assert.rejects(() => dispatchTool(store, other, worker, 'browser_snapshot', { profile_id: profile.id, client_id: 'x', fencing_generation: lease.fencingGeneration })); await assert.rejects(() => dispatchTool(store, agent, worker, 'browser_evaluate', {}));
 });

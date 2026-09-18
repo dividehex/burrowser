@@ -1,84 +1,75 @@
-import { acquireLease, createProfile, LEASE_EXPIRED_MESSAGE, LEASE_TTL_MS, ownedProfile, releaseLease, requireLease, type ProfileStore } from './profiles.ts';
-import { validateBrowserUrl } from './url-policy.ts';
+import { acquireLease, releaseLease, type Lease, type Profile, type ProfileStore } from './profiles.ts';
 import type { Agent } from './identity.ts';
+import { HttpError } from './errors.ts';
 import type { PostgresRepository } from './repository.ts';
 
-export const MCP_TOOLS = ['browser_profiles_list', 'browser_profiles_create', 'browser_profile_open', 'browser_profile_release', 'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_auth_status', 'browser_passkey_enrollment_request', 'browser_passkey_status'] as const;
+/** What the gateway needs from a profile's worker besides the Playwright MCP tools themselves. */
 export type WorkerPort = {
-  navigate(url: string): Promise<unknown>;
-  snapshot(): Promise<unknown>;
-  click(selector: string): Promise<unknown>;
-  type(selector: string, text: string): Promise<unknown>;
-  authStatus(): Promise<unknown>;
   passkeyEnrollBegin(rpId: string): Promise<unknown>;
   passkeyEnrollPoll(): Promise<unknown>;
   passkeyList(): Promise<{ credentials: unknown[] }>;
-  /** Admin-dashboard-only: a periodic visual thumbnail, never exposed as an MCP tool - see
+  /** Admin-dashboard-only: a periodic visual thumbnail, never exposed to agents - see
    * docs/architecture/original-spec.md line 106's "optional thumbnails/snapshot polling". */
   thumbnail(): Promise<{ image: string; contentType: string }>;
 };
+
 export type DurableProfileStore = {
-  listProfiles(agentId: string): Promise<import('./profiles.ts').Profile[]>;
-  createProfile(profile: import('./profiles.ts').Profile): Promise<import('./profiles.ts').Profile>;
-  acquireLease(profileId: string, agentId: string, clientId: string, now: Date): Promise<import('./profiles.ts').Lease>;
+  listProfiles(agentId: string): Promise<Profile[]>;
+  acquireLease(profileId: string, agentId: string, clientId: string, now: Date): Promise<Lease>;
   releaseLease(profileId: string, clientId: string, generation: number, now: Date): Promise<void>;
-  getLease(profileId: string): Promise<import('./profiles.ts').Lease | undefined>;
-  renewLease?(profileId: string, clientId: string, generation: number, now: Date): Promise<void>;
 };
 
-export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfiles' | 'createProfile' | 'acquireLease' | 'releaseLease' | 'getLease'>): DurableProfileStore {
+export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfiles' | 'acquireLease' | 'releaseLease'>): DurableProfileStore {
   return repository;
 }
 
 /** States in which a profile's browser can be driven. */
-const USABLE_STATES = new Set(['READY', 'IDLE']);
+export const USABLE_STATES = new Set(['READY', 'IDLE']);
 
-export async function dispatchTool(store: ProfileStore | DurableProfileStore, agent: Agent, worker: WorkerPort | undefined, name: string, args: any, now = Date.now()) {
-  if (!(MCP_TOOLS as readonly string[]).includes(name)) throw new Error('tool not found');
-  const durable = 'listProfiles' in store;
-  if (name === 'browser_profiles_list') {
-    const profiles = durable ? await store.listProfiles(agent.id) : [...store.profiles.values()].filter(p => p.agentId === agent.id);
-    return profiles.map(({ id, name, state, createdAt, lastUsedAt }) => ({ id, name, state, createdAt, lastUsedAt }));
+const isDurable = (store: ProfileStore | DurableProfileStore): store is DurableProfileStore => 'listProfiles' in store;
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export async function findOwnedProfile(store: ProfileStore | DurableProfileStore, agentId: string, profileId: string): Promise<Profile | undefined> {
+  if (isDurable(store)) return (await store.listProfiles(agentId)).find(candidate => candidate.id === profileId);
+  const profile = store.profiles.get(profileId);
+  return profile && profile.agentId === agentId ? profile : undefined;
+}
+
+/**
+ * A session's hold on a profile. `ensure` is called on every proxied call: it takes the lease the first
+ * time, renews it afterwards (so a busy agent never loses it), and takes it back if it lapsed while the
+ * agent was thinking, unless someone else has taken it meanwhile, in which case it fails with "busy".
+ */
+export function profileLease(store: ProfileStore | DurableProfileStore, agent: Agent, profile: Profile, clientId: string) {
+  let held: Lease | undefined;
+  return {
+    async ensure(): Promise<void> {
+      held = isDurable(store) ? await store.acquireLease(profile.id, agent.id, clientId, new Date()) : acquireLease(store, profile, clientId);
+    },
+    async release(): Promise<void> {
+      if (!held) return;
+      const generation = held.fencingGeneration;
+      held = undefined;
+      try {
+        if (isDurable(store)) await store.releaseLease(profile.id, clientId, generation, new Date());
+        else releaseLease(store, profile.id, clientId, generation);
+      } catch { /* already expired or taken over: nothing left to release */ }
+    },
+  };
+}
+
+/**
+ * Waits for a durable profile's browser to be ready (a stopped profile restarts when its lease is taken, which
+ * takes a few seconds). In-memory profiles have no controller behind them, so they are usable as they stand.
+ */
+export async function waitUntilUsable(store: ProfileStore | DurableProfileStore, agentId: string, profile: Profile, options: { timeoutMs: number; pollMs: number }): Promise<Profile> {
+  if (!isDurable(store)) return profile;
+  const deadline = Date.now() + options.timeoutMs;
+  for (;;) {
+    const current = (await store.listProfiles(agentId)).find(candidate => candidate.id === profile.id);
+    if (!current || current.state === 'DELETING') throw new HttpError(404, 'profile not found');
+    if (USABLE_STATES.has(current.state)) return current;
+    if (Date.now() >= deadline) throw new HttpError(503, `the profile is ${current.state} and did not become READY within ${Math.round(options.timeoutMs / 1000)}s`);
+    await sleep(options.pollMs);
   }
-  if (name === 'browser_profiles_create') {
-    if (!durable) return createProfile(store, agent, args.name, now);
-    const profile = createProfile({ profiles: new Map(), leases: new Map() }, agent, args.name, now);
-    return store.createProfile(profile);
-  }
-  const profile = durable
-    ? (await store.listProfiles(agent.id)).find(candidate => candidate.id === args.profile_id)
-    : ownedProfile(store, agent.id, args.profile_id);
-  if (!profile) throw new Error('profile not found');
-  if (name === 'browser_profile_open') {
-    const lease = durable ? await store.acquireLease(profile.id, agent.id, args.client_id, new Date(now)) : acquireLease(store, profile, args.client_id, now);
-    const profileState = profile.state === 'STOPPED' ? 'ABSENT' : profile.state;   // acquiring restarts a reclaimed profile
-    return USABLE_STATES.has(profileState) ? { ...lease, profileState } : { ...lease, profileState, hint: `the profile is ${profileState}; poll browser_profiles_list until it is READY before using browser tools` };
-  }
-  if (name === 'browser_profile_release') {
-    if (durable) await store.releaseLease(profile.id, args.client_id, args.fencing_generation, new Date(now));
-    else releaseLease(store, profile.id, args.client_id, args.fencing_generation, now);
-    return { released: true };
-  }
-  if (!worker) throw new Error('browser unavailable');
-  if (durable && !USABLE_STATES.has(profile.state)) throw new Error(`the profile is ${profile.state}, not READY yet: poll browser_profiles_list until it is READY (a profile that was stopped restarts when you call browser_profile_open)`);
-  if (durable) {
-    const lease = await store.getLease(profile.id);
-    if (!lease || lease.ownerClientId !== args.client_id || lease.fencingGeneration !== args.fencing_generation || lease.expiresAt <= now) throw new Error(LEASE_EXPIRED_MESSAGE);
-    await store.renewLease?.(profile.id, args.client_id, args.fencing_generation, new Date(now));
-  } else {
-    const lease = requireLease(store, profile.id, args.client_id, args.fencing_generation, now);
-    lease.expiresAt = now + LEASE_TTL_MS;
-    profile.lastUsedAt = now;
-  }
-  if (name === 'browser_navigate') return worker.navigate(validateBrowserUrl(args.url, args.previous_url));
-  if (name === 'browser_snapshot') return worker.snapshot();
-  if (name === 'browser_click') return worker.click(String(args.selector));
-  if (name === 'browser_type') { if (String(args.text).length > 10_000) throw new Error('text too long'); return worker.type(String(args.selector), String(args.text)); }
-  if (name === 'browser_auth_status') return worker.authStatus();
-  if (name === 'browser_passkey_status') {
-    const [enrollment, { credentials }] = await Promise.all([worker.passkeyEnrollPoll(), worker.passkeyList()]);
-    return { supported: true, credentials, enrollment };
-  }
-  if (name === 'browser_passkey_enrollment_request') return worker.passkeyEnrollBegin(String(args.rp_id));
-  throw new Error('tool not found');
 }

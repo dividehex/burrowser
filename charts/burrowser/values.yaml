@@ -21,3 +21,10 @@ postgres:
 service:
   type: ClusterIP
   port: 8080
+# Playwright MCP is what agents get, unmodified. These two settings only choose which of its tools exist.
+mcp:
+  # Playwright MCP tool groups the worker enables (comma separated; "core" is a stock server). Others it
+  # documents: vision, pdf, devtools, network, storage, testing, config.
+  capabilities: core
+  # Individual tool names to switch off at the gateway, e.g. "browser_evaluate,browser_file_upload".
+  excludeTools: ''

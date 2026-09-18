@@ -12,8 +12,9 @@ Agent commands
       The invitation is read from the file, piped stdin, or a hidden prompt; never from argv.
   burrowser whoami [--identity NAME]
       Authenticate with a saved identity and list its profiles.
-  burrowser mcp [--identity NAME]
-      Run a stdio MCP server that forwards to the gateway as this agent. Point an MCP client at it,
+  burrowser mcp [--identity NAME] [--profile NAME]
+      Run a stdio MCP server that IS your profile's Playwright MCP server, seen through the gateway. The profile (default: the
+      identity's name) is created on first use. Point an MCP client at it,
       e.g.  claude mcp add burrowser -- burrowser mcp --identity NAME
 
 Admin commands (need the admin bootstrap token: BURROWSER_ADMIN_BOOTSTRAP, --admin-token-file, or --admin-token-stdin)

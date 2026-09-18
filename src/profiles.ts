@@ -21,9 +21,9 @@ export function ownedProfile(store: ProfileStore, agentId: string, id: string) {
   return profile;
 }
 
-/** Long enough to span an LLM agent's think time between tool calls; every successful call slides it forward. */
+/** Long enough to span a gateway hiccup; a live MCP session renews it on every call, and a dead one lets it lapse. */
 export const LEASE_TTL_MS = 120_000;
-export const LEASE_EXPIRED_MESSAGE = 'lease required or expired: call browser_profile_open again to obtain a fresh fencing_generation';
+export const LEASE_EXPIRED_MESSAGE = 'lease required or expired';
 
 export function acquireLease(store: ProfileStore, profile: Profile, clientId: string, now = Date.now(), ttlMs = LEASE_TTL_MS) {
   const current = store.leases.get(profile.id);

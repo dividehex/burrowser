@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { ProfileController } from '../src/controller.ts';
-import { dispatchTool } from '../src/mcp.ts';
-import { LEASE_TTL_MS } from '../src/profiles.ts';
 import { PostgresRepository, type DbClient, type DbPool, type QueryResult } from '../src/repository.ts';
 import { createGateway, makeState } from '../src/server.ts';
 
@@ -73,18 +71,6 @@ test('a profile being deleted can neither be re-leased nor have its state overwr
   assert.match(update.client.calls[0], /state <> 'DELETING'/);
 });
 
-test('renewLease slides expiry for the current holder only and refreshes last_used_at when it did', async () => {
-  const held = repositoryWith({ rows: [], rowCount: 1 });
-  await held.repository.renewLease('p', 'c', 3, new Date(1000));
-  assert.match(held.client.calls[1], /UPDATE control_leases SET expires_at/);
-  assert.equal((held.client.values[1][3] as Date).getTime(), 1000 + LEASE_TTL_MS);
-  assert.ok(held.client.calls.some(call => call.startsWith('UPDATE profiles SET last_used_at')));
-
-  const lost = repositoryWith({ rows: [], rowCount: 0 });
-  await lost.repository.renewLease('p', 'c', 3, new Date(1000));
-  assert.ok(!lost.client.calls.some(call => call.startsWith('UPDATE profiles SET last_used_at')));
-});
-
 test('the controller tears down a DELETING profile including its PVC, and finalizes only once everything is gone', async () => {
   const profile: any = { id: 'p', agentId: 'a', name: 'Main', pvcName: 'bw-p', state: 'DELETING', createdAt: 0, lastUsedAt: 0 };
   const objects = new Map<string, unknown>([['pod/bw-p', {}], ['service/bw-p', {}], ['secret/bw-p-worker-auth', {}], ['pvc/bw-p', {}]]);
@@ -111,37 +97,6 @@ test('the controller tears down a DELETING profile including its PVC, and finali
   pvcTerminating = false;
   await controller.reconcileOnce();
   assert.deepEqual(finalized, ['p']);
-});
-
-test('every successful worker tool call slides the lease forward, and an expired lease says how to recover', async () => {
-  const agent: any = { id: 'a', displayName: 'a', publicKey: '' };
-  const store: any = { profiles: new Map(), leases: new Map() };
-  const worker: any = { navigate: async (url: string) => ({ url }) };
-  const profile: any = await dispatchTool(store, agent, undefined, 'browser_profiles_create', { name: 'main' }, 0);
-  const lease: any = await dispatchTool(store, agent, undefined, 'browser_profile_open', { profile_id: profile.id, client_id: 'c' }, 1000);
-  const args = { profile_id: profile.id, client_id: 'c', fencing_generation: lease.fencingGeneration, url: 'https://example.com/' };
-
-  await dispatchTool(store, agent, worker, 'browser_navigate', args, 100_000);
-  assert.equal(store.leases.get(profile.id).expiresAt, 100_000 + LEASE_TTL_MS);
-  assert.equal(store.profiles.get(profile.id).lastUsedAt, 100_000);
-  await dispatchTool(store, agent, worker, 'browser_navigate', args, 200_000);
-
-  await assert.rejects(() => dispatchTool(store, agent, worker, 'browser_navigate', args, 200_000 + LEASE_TTL_MS + 1), /call browser_profile_open again/);
-});
-
-test('durable stores get renewLease called after the lease check passes', async () => {
-  const agent: any = { id: 'a', displayName: 'a', publicKey: '' };
-  const profile: any = { id: 'p', agentId: 'a', name: 'main', pvcName: 'bw-p', state: 'READY', createdAt: 0, lastUsedAt: 0 };
-  const renewed: unknown[][] = [];
-  const store: any = {
-    listProfiles: async () => [profile],
-    getLease: async () => ({ profileId: 'p', ownerClientId: 'c', fencingGeneration: 4, expiresAt: 10_000 }),
-    renewLease: async (...args: unknown[]) => { renewed.push(args); },
-  };
-  await dispatchTool(store, agent, { navigate: async () => ({}) } as any, 'browser_navigate', { profile_id: 'p', client_id: 'c', fencing_generation: 4, url: 'https://example.com/' }, 5000);
-  assert.deepEqual(renewed.map(([id, client, generation]) => [id, client, generation]), [['p', 'c', 4]]);
-  await assert.rejects(() => dispatchTool(store, agent, { navigate: async () => ({}) } as any, 'browser_navigate', { profile_id: 'p', client_id: 'c', fencing_generation: 3, url: 'https://example.com/' }, 5000), /lease required or expired/);
-  assert.equal(renewed.length, 1, 'a wrong fencing generation must not renew anything');
 });
 
 test('admin agent/profile listing and deletion over HTTP (bootstrap bearer, confirmation, ownership rules)', async () => {

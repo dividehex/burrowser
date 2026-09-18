@@ -59,6 +59,12 @@ spec:
           value: {{ $workerImage | quote }}
         - name: BURROWSER_WORKER_IMAGE_PULL_POLICY
           value: {{ .Values.workerImage.pullPolicy | quote }}
+        - name: BURROWSER_MCP_CAPS
+          value: {{ .Values.mcp.capabilities | quote }}
+        {{- if .Values.mcp.excludeTools }}
+        - name: BURROWSER_MCP_EXCLUDE_TOOLS
+          value: {{ .Values.mcp.excludeTools | quote }}
+        {{- end }}
         - name: BURROWSER_TOKEN_KEY
           valueFrom:
             secretKeyRef:

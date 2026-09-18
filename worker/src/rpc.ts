@@ -1,4 +1,5 @@
-export const WORKER_METHODS = ['navigate', 'snapshot', 'click', 'type', 'authStatus', 'passkeyEnrollBegin', 'passkeyEnrollPoll', 'passkeyList', 'thumbnail'] as const;
+/** Browser control goes through the MCP endpoint (/mcp); /rpc is only for what MCP has no equivalent for. */
+export const WORKER_METHODS = ['passkeyEnrollBegin', 'passkeyEnrollPoll', 'passkeyList', 'thumbnail'] as const;
 
 export function authorizeWorkerRequest(headers: Record<string, string | string[] | undefined>, credential: string) {
   const authorization = headers.authorization;

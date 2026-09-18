@@ -1,39 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProfileController } from '../src/controller.ts';
-import { dispatchTool } from '../src/mcp.ts';
 import { PostgresRepository, type DbClient, type DbPool, type QueryResult } from '../src/repository.ts';
-
-const agent: any = { id: 'a', displayName: 'a', publicKey: '' };
-function durableStoreWith(state: string) {
-  const profile: any = { id: 'p', agentId: 'a', name: 'main', pvcName: 'bw-p', state, createdAt: 0, lastUsedAt: 0 };
-  const store: any = {
-    listProfiles: async () => [profile],
-    acquireLease: async (profileId: string, _agent: string, clientId: string, now: Date) => ({ profileId, ownerClientId: clientId, fencingGeneration: 1, expiresAt: now.getTime() + 120_000 }),
-    getLease: async () => ({ profileId: 'p', ownerClientId: 'c', fencingGeneration: 1, expiresAt: Date.now() + 60_000 }),
-  };
-  return store;
-}
-
-test('opening a profile that was stopped for idleness reports it is restarting and says how to wait', async () => {
-  const opened: any = await dispatchTool(durableStoreWith('STOPPED'), agent, undefined, 'browser_profile_open', { profile_id: 'p', client_id: 'c' });
-  assert.equal(opened.profileState, 'ABSENT', 'the repository hands a STOPPED profile back to the controller as ABSENT');
-  assert.equal(opened.fencingGeneration, 1);
-  assert.match(opened.hint, /poll browser_profiles_list until it is READY/);
-
-  const ready: any = await dispatchTool(durableStoreWith('READY'), agent, undefined, 'browser_profile_open', { profile_id: 'p', client_id: 'c' });
-  assert.equal(ready.profileState, 'READY');
-  assert.equal(ready.hint, undefined);
-});
-
-test('browser tools on a profile that is not READY fail with an explanation instead of a connection error', async () => {
-  const worker: any = { navigate: async () => { throw new Error('should not be reached'); } };
-  const args = { profile_id: 'p', client_id: 'c', fencing_generation: 1, url: 'https://example.com/' };
-  for (const state of ['ABSENT', 'STARTING', 'STOPPED', 'FAILED', 'DELETING']) {
-    await assert.rejects(() => dispatchTool(durableStoreWith(state), agent, worker, 'browser_navigate', args), new RegExp(`the profile is ${state}, not READY yet`));
-  }
-  await dispatchTool(durableStoreWith('READY'), agent, { navigate: async (url: string) => ({ url }) } as any, 'browser_navigate', args);
-});
 
 class FakeClient implements DbClient {
   readonly calls: string[] = [];

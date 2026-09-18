@@ -10,6 +10,7 @@ import { parseInvitationToken } from '../src/cli/enroll.ts';
 import { identityPath, listIdentities, loadIdentity, newKeyPair, saveIdentity, type Identity } from '../src/cli/identity-store.ts';
 import { resolveId, table } from '../src/cli/admin.ts';
 import { createGateway, makeState } from '../src/server.ts';
+import { FAKE_TOOLS, startFakePlaywrightWorker } from './helpers/fake-playwright-worker.ts';
 
 const CLI = new URL('../src/cli/main.ts', import.meta.url).pathname;
 const NODE_ARGS = ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', CLI];
@@ -66,7 +67,8 @@ test('invitation tokens, id prefixes and tables parse and format as documented',
 
 test('enroll, whoami, the MCP bridge, and admin list/delete work end to end through the real CLI', async () => {
   const configHome = await mkdtemp(join(tmpdir(), 'burrowser-cli-'));
-  const server = createGateway(makeState(), 'admin-secret', 'token-secret');
+  const worker = await startFakePlaywrightWorker();
+  const server = createGateway(makeState(), 'admin-secret', 'token-secret', undefined, undefined, undefined, undefined, 2000, async () => worker.target);
   await new Promise<void>(resolve => server.listen(0, resolve));
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
   const env = { BURROWSER_URL: url, BURROWSER_ADMIN_BOOTSTRAP: 'admin-secret', XDG_CONFIG_HOME: configHome };
@@ -96,28 +98,26 @@ test('enroll, whoami, the MCP bridge, and admin list/delete work end to end thro
     assert.match(whoami.stdout, /"tester" \(agent [0-9a-f]{32}\) is authenticated/);
     assert.match(whoami.stdout, /No profiles yet/);
 
-    // The stdio bridge, driven by a real MCP client exactly as Claude Code would drive it.
+    // The stdio bridge, driven by a real MCP client exactly as Claude Code would drive it. It creates the
+    // profile (named after the identity) on first use and exposes the browser's tools unchanged.
     const client = new Client({ name: 'cli-test', version: '1.0.0' });
     const transport = new StdioClientTransport({ command: process.execPath, args: [...NODE_ARGS, 'mcp', '--identity', 'tester'], env: { PATH: process.env.PATH ?? '', ...env }, stderr: 'ignore' });
     await client.connect(transport);
     try {
-      assert.match(client.getInstructions() ?? '', /browser_profile_open/);
       const tools = (await client.listTools()).tools;
-      assert.ok(tools.some(tool => tool.name === 'browser_navigate'));
-      for (const tool of tools) assert.ok(tool.description && !tool.description.startsWith('Burrowser browser_'), `${tool.name} has a real description`);
-      const created = await client.callTool({ name: 'browser_profiles_create', arguments: { name: 'demo' } }) as any;
-      assert.equal(JSON.parse(created.content[0].text).name, 'demo');
-      const listed = await client.callTool({ name: 'browser_profiles_list', arguments: {} }) as any;
-      assert.deepEqual(JSON.parse(listed.content[0].text).map((profile: any) => profile.name), ['demo']);
-      const refused = await client.callTool({ name: 'browser_navigate', arguments: { profile_id: 'x', client_id: 'c', fencing_generation: 1, url: 'https://example.com' } }) as any;
-      assert.equal(refused.isError, true, 'tool errors from the gateway come through as MCP tool errors');
+      for (const fake of FAKE_TOOLS) assert.deepEqual(tools.find(tool => tool.name === fake.name), { ...fake }, `${fake.name} is exactly what the browser offers`);
+      const navigated = await client.callTool({ name: 'browser_navigate', arguments: { url: 'https://example.com' } }) as any;
+      assert.match(navigated.content[0].text, /Page URL: https:\/\/example\.com/);
+      const failed = await client.callTool({ name: 'browser_boom', arguments: {} }) as any;
+      assert.equal(failed.isError, true, 'tool errors from the browser come through as MCP tool errors');
     } finally { await client.close(); }
+    await new Promise(resolve => setTimeout(resolve, 300));   // let the bridge's shutdown end its gateway session
 
     const agents = JSON.parse((await run(['admin', 'agents', 'list', '--json'], env)).stdout) as any[];
     const tester = agents.find(agent => agent.displayName === 'tester');
     assert.equal(tester.profileCount, 1);
     const profiles = JSON.parse((await run(['admin', 'profiles', 'list', '--json'], env)).stdout) as any[];
-    assert.equal(profiles[0].name, 'demo');
+    assert.equal(profiles[0].name, 'tester', 'the bridge created the profile, named after the identity');
     assert.match((await run(['admin', 'agents', 'list'], env)).stdout, /tester\s+active\s+1/);
 
     const noConfirm = await run(['admin', 'profiles', 'delete', profiles[0].id.slice(0, 6)], env);
@@ -129,7 +129,7 @@ test('enroll, whoami, the MCP bridge, and admin list/delete work end to end thro
 
     const deleted = await run(['admin', 'profiles', 'delete', profiles[0].id.slice(0, 6), '--yes', '--wait'], env);
     assert.equal(deleted.code, 0, deleted.stderr);
-    assert.match(deleted.stdout, /Deleted profile "demo"/);
+    assert.match(deleted.stdout, /Deleted profile "tester"/);
     const gone = await run(['admin', 'agents', 'delete', tester.id.slice(0, 8), '--yes'], env);
     assert.equal(gone.code, 0, gone.stderr);
     assert.equal((await run(['whoami', '--identity', 'tester'], env)).code, 1, 'a deleted agent can no longer authenticate');
@@ -139,7 +139,7 @@ test('enroll, whoami, the MCP bridge, and admin list/delete work end to end thro
     assert.match(wrongToken.stderr, /401/);
     assert.equal((await run(['admin', 'agents', 'list', '--bogus'], env)).code, 2);
   } finally {
-    server.close();
+    server.close(); server.closeAllConnections(); await worker.close();
     await rm(configHome, { recursive: true, force: true });
   }
 });
