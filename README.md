@@ -8,11 +8,12 @@ passkeys — over MCP.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ![The Agent Browser admin dashboard after signing in, showing the live-runtimes tile grid](docs/assets/admin-dashboard.png)
-*The admin dashboard (`GET /admin`) right after signing in — a real,
-authenticated screenshot from a running instance. This one has no active
-profiles at the moment; each profile that's `STARTING`/`READY`/`IDLE`
-appears here as a live tile with a thumbnail preview and a click-through
-noVNC view, and disappears once stopped.*
+*The admin dashboard (`GET /admin`) — a real, authenticated screenshot
+from a running instance, with four real agents each running their own
+profile: `research-bot`, `docs-bot`, `qa-bot`, and `support-bot`, each
+navigated to a different real page. Every tile shows a live thumbnail
+polled from that profile's actual worker Pod and a click-through noVNC
+view; a tile disappears once its profile stops.*
 
 **[Quick start](#quick-start) · [Architecture](docs/repository-structure.md) · [Threat model](docs/threat-model.md) · [Milestone status](docs/implementation-plan.md)**
 

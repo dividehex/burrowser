@@ -86,7 +86,7 @@
    cluster: navigated a real profile to two different real pages and
    confirmed the fetched JPEG bytes actually changed between them (not a
    cached or static image).
-7. **M7 hardening — done except the two decisions blocked on Jake.** Done
+7. **M7 hardening — done.** Done
    and live-verified: rate limits, agent revocation, GC races/node loss,
    backup/restore, and now capacity: the worker Pod spec (`src/kube.ts`)
    gained CPU/memory requests+limits (250m/512Mi request, 1 CPU/1Gi
@@ -103,8 +103,17 @@
    winner. Live-verified against the real cluster: 3 real profiles
    created concurrently all reached `READY`, each with the new resource
    limits actually present on the deployed Pod (`kubectl get pod -o
-   jsonpath='{.spec.containers[0].resources}'`). Not done: a CI pipeline
-   and a real remote image registry, both blocked on where to host each
-   (open decisions, not yet made).
+   jsonpath='{.spec.containers[0].resources}'`).
+
+   Both decisions this used to call blocked are now made: CI is a GitHub
+   Actions workflow (`.github/workflows/ci.yml` — unit/integration tests,
+   both Docker images build-validated, Helm chart lint/render) that runs
+   on every push and PR to `main`. No image registry is published for this
+   project — deliberately: operators are expected to already have a
+   Kubernetes/K3s cluster and PostgreSQL server, and are assumed capable of
+   running or pointing at their own private registry (a K3s cluster's own
+   built-in one, or otherwise) rather than depending on the maintainer to
+   cut releases and host images. `scripts/build-and-deploy-local.sh`
+   automates the build-and-push-to-your-own-registry path end to end.
 
 No OpenBao or password/TOTP automation is planned for the initial release.
