@@ -33,6 +33,15 @@
 >   (not in the original list). `POST /v1/profiles/{id}/heartbeat` was
 >   never built: instead a lease lasts two minutes and every successful
 >   worker-touching MCP call slides it forward.
+> - **"Restricted MCP" was reversed.** "Restricted MCP and browser controls"
+>   below prescribes a small custom tool set with no evaluate, no file access
+>   and a URL policy. Burrowser now exposes Playwright MCP's own tools,
+>   unmodified, on the profile's browser, with an operator-configurable
+>   exclude list and the agent-side classifier as the boundary between an
+>   agent and its tools; see
+>   [ADR-0003](adr-0003-expose-playwright-mcp-unmodified.md). The lease/fencing
+>   arguments on every tool call are gone too: the gateway holds the lease
+>   for the MCP session.
 > - **Repository structure differs.** "Repository suggested structure"
 >   below sketches a Go-style `cmd/`/`internal/` layout. The actual
 >   layout is a flat `src/`/`worker/src/` TypeScript tree — see

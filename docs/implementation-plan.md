@@ -142,20 +142,39 @@
    was reclaimed for idleness now restarts it (`acquireLease` hands a
    `STOPPED` profile back to the controller as `ABSENT`; the controller only
    persists state it changed itself, so a stale pass cannot undo that; the
-   restarted Pod re-mounts the same PVC, confirmed live), `browser_profile_open`
-   reports the profile's state with a hint to poll until `READY`, and browser
-   tools on a profile that is not yet `READY` say so instead of failing with a
-   connection error. On feedback from a Claude subagent that drove the MCP
-   tools, `browser_navigate` now returns the final URL, HTTP status and page
-   title, and `browser_snapshot` returns URL, title, a heading outline
-   (`{level, text}` for every h1-h6 in document order) and the visible text,
-   bounded to about 20,000 characters and 100 headings with
-   `textTruncated`/`headingsTruncated` flags (`worker/src/page-summary.ts`);
-   worker failure reasons such as `net::ERR_NAME_NOT_RESOLVED` now reach the
-   agent (first line only).
+   restarted Pod re-mounts the same PVC, confirmed live). The hand-written
+   tool surface these fixes touched was then replaced wholesale (item 9).
    The same CLI then removed all 22 test agents left in the database (from
    earlier sessions' live verification, plus the screenshot demo agents)
    and their 4 stopped profiles.
+9. **Playwright MCP, unmodified — done, live-verified.** A subagent's feedback
+   ("this task couldn't be completed with the MCP tools alone") showed the
+   wrapped tool set was a worse browser than the real thing: no element refs
+   to click, no key presses, tabs or dialogs, lease arguments on every call.
+   The tools an agent sees are now Playwright MCP's own (ADR-0003):
+   `@playwright/mcp` runs in each worker Pod on the worker's own persistent
+   browser context (`createConnection(config, contextGetter)`), and the
+   gateway is an authenticating, lease-holding proxy that forwards
+   `tools/list` and `tools/call` untouched, with a configurable exclude list
+   (`mcp.excludeTools`, empty by default) and two added passkey tools.
+   `burrowser mcp` binds a profile (default: the identity's name, created on
+   first use) and takes care of authentication; the gateway holds the lease
+   for the session, waits for the browser, and restarts a stopped profile.
+   Removed: the wrapped navigate/snapshot/click/type tools and RPC, the
+   `browser_profile_*` lease tools, `url-policy.ts`, `renewLease`, and my
+   hand-rolled page summary. Added: a worker readiness probe (the gateway now
+   connects the instant a profile is `READY`) and a bounded connect retry.
+   Live-verified against the real cluster with a real MCP client through the
+   bridge: 28 tools with Playwright's own descriptions and schemas; a 13-second
+   cold start; navigate/snapshot/click-by-ref in Playwright's native output
+   format; a real form typed into and submitted; a second tab opened and
+   listed; a screenshot returned as an image; the admin thumbnail and the
+   noVNC view still seeing the same browser; a second session refused with
+   409 and the lease released when the bridge exited; a real WebAuthn
+   registration on webauthn.io answered by the virtual authenticator through
+   these tools; and that passkey restored after the worker Pod was killed and
+   recreated. Note that `@playwright/mcp` pins a Playwright alpha (0.0.81 needs
+   `1.64.0-alpha-2026-09-14`), so `worker/package.json` pins both.
 
 Still open: TLS in front of the gateway (see `docs/threat-model.md`); the
 operator plans to add it with Let's Encrypt.

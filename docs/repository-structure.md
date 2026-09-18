@@ -22,14 +22,15 @@ src/                          controller/gateway (Node, run with --experimental-
   kubernetes.ts                 KubernetesApiClient (KubernetesPort impl, @kubernetes/client-node)
   kube.ts                       fixed worker Pod/Service/PVC/Secret manifest generation
   worker-secrets.ts             per-profile worker credential Secret provider (get/ensure)
-  worker-client.ts              HttpWorkerClient: authenticated RPC to a profile's worker Pod
-  mcp.ts                        MCP_TOOLS allowlist + dispatchTool (tenant/lease-gated business logic)
-  mcp-http.ts                   MCP Streamable HTTP transport (@modelcontextprotocol/sdk wiring)
+  worker-client.ts              HttpWorkerClient (passkey + thumbnail RPC) and workerMcpUrl
+  mcp.ts                        session lease (profileLease), readiness wait, WorkerPort/DurableProfileStore types
+  mcp-http.ts                   MCP Streamable HTTP endpoint: x-burrowser-profile header -> lease + wait for browser + proxy
+  mcp-proxy.ts                  the MCP proxy: tools/list + tools/call pass through to the worker's Playwright MCP
+                                 untouched (exclude list, passkey tools, bounded connect retry)
   view-tickets.ts               single-use tickets gating the live-view WebSocket upgrade
   ws-bridge.ts                  ws-based WebSocket<->TCP bridge to a worker's VNC port
   static-assets.ts              serves src/view.html and @novnc/novnc's ES modules
   view.html                     the live-view browser page (noVNC RFB client)
-  url-policy.ts                 SSRF-resistant browser_navigate URL allowlist
   errors.ts                     HttpError: an error carrying the HTTP status the gateway answers with
 
   cli/                          the `burrowser` command line (package.json "bin"; `npm run cli -- ...`)
@@ -43,18 +44,19 @@ src/                          controller/gateway (Node, run with --experimental-
     args.ts, cli-error.ts         strict option parsing and user-facing error type
 
 worker/                       hardened per-profile Playwright container (separate image)
-  src/main.ts                    authenticated RPC server (navigate/snapshot/click/type/authStatus)
-  src/rpc.ts                     worker-side auth + allowlisted method validation
+  src/main.ts                    owns the persistent browser context; serves Playwright MCP on /mcp and passkey/thumbnail RPC on /rpc
+  src/rpc.ts                     worker-side auth + allowlisted RPC methods (passkeys, thumbnail)
   src/persistence.ts              encrypted (AES-256-GCM) virtual-authenticator credential store
-  src/page-summary.ts             page title/heading-outline/visible-text extraction with size bounds
+  src/mcp-endpoint.ts             Streamable HTTP session table around Playwright MCP's createConnection
   entrypoint.sh                  starts Xvfb, x11vnc (read-only), then the RPC server
-  Dockerfile                     non-root, read-only-rootfs Playwright image + x11vnc
+  Dockerfile                     non-root, read-only-rootfs image; installs the Chromium that the pinned @playwright/mcp + Playwright pair needs
 
 db/migrations/                 plain numbered .sql files, run via postgres-migrations
 charts/burrowser/          Helm chart: Deployment, Service, RBAC, NetworkPolicy, StorageClass
 scripts/                       build-and-deploy-local.sh, backup/restore-postgres.sh,
                                 provision-postgres.ts, install-chromium-seccomp.sh
-tests/                         node:test unit + real-listener integration tests, plus tests/k8s/
+tests/                         node:test unit + real-listener integration tests (tests/helpers/ has a fake Playwright
+                                worker), plus tests/k8s/
                                 (disposable smoke-test manifests, not run by `npm test`)
 docs/                          architecture ADRs and the original spec, threat model, runbooks
 ```
@@ -67,8 +69,8 @@ docs/                          architecture ADRs and the original spec, threat m
   implements `KubernetesPort` from `reconcile.ts`; swapping its internals
   to `@kubernetes/client-node` required no changes to `reconcile.ts`,
   `controller.ts`, or their tests.
-- **Durable vs. in-memory stores share call sites.** `dispatchTool` and the
-  HTTP routes in `server.ts` branch on `'listProfiles' in store` to decide
+- **Durable vs. in-memory stores share call sites.** The MCP session helpers
+  in `mcp.ts` and the HTTP routes in `server.ts` branch on `'listProfiles' in store` to decide
   whether they're talking to the in-memory dev store or
   `PostgresRepository`; there is no separate durable-only code path to keep
   in sync.
@@ -87,7 +89,8 @@ docs/                          architecture ADRs and the original spec, threat m
   controller. `audit_events` rows are written at each step and, since
   migration `002`, are not tied to the profile row by a foreign key so they
   outlive it.
-- **Leases slide.** A control lease lasts `LEASE_TTL_MS` (two minutes) and
-  every successful worker-touching MCP call renews it (`dispatchTool` →
-  `renewLease`), which stands in for the heartbeat endpoint the original
-  spec sketched.
+- **A lease is a session's hold on a profile.** `handleMcpHttp` takes it when
+  an MCP session starts (`profileLease` in `mcp.ts`, which also restarts a
+  stopped profile), the proxy renews it before every forwarded call, and
+  ending the session releases it. It lasts `LEASE_TTL_MS` (two minutes), so a
+  vanished client frees the profile shortly; agents never see it.

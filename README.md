@@ -26,8 +26,9 @@ cookies, local storage, and a real virtual WebAuthn authenticator all
 survive pod restarts and node reboots, because they live on a dedicated
 per-profile PVC rather than in the pod itself. Every profile runs in its
 own hardened, non-root, network-isolated Pod — agents never receive cluster
-credentials, pod IPs, or a raw CDP endpoint, only a narrow MCP tool surface
-gated by server-verified identity.
+credentials, pod IPs, or a raw CDP endpoint. What they *do* get is a genuine
+browser: the tools are [Playwright MCP](https://github.com/microsoft/playwright-mcp)'s
+own, unwrapped, running on that persistent profile.
 
 ## Features
 
@@ -39,23 +40,28 @@ gated by server-verified identity.
   launch — it holds the key and refreshes short-lived tokens so the client
   never has to — and `admin` covers invitations plus listing and deleting
   agents and profiles. Secrets are never taken from argv.
-- **Named, persistent profiles.** `browser_profiles_create` /
-  `browser_profiles_list` / `browser_profile_open` / `browser_profile_release`
-  — each profile is its own Pod + Service + PVC, reconciled from durable
-  PostgreSQL state, not an in-memory map.
+- **Playwright MCP, unmodified.** An agent sees exactly the tools, schemas,
+  descriptions and results a stock Playwright MCP server gives it —
+  accessibility snapshots with element refs, click/type/fill by ref, key
+  presses, tabs, dialogs, screenshots, evaluate — because it *is* Playwright
+  MCP, served from inside the profile's Pod and proxied through the gateway.
+  Burrowser adds only two passkey tools, and lets an operator switch
+  individual tools off (`mcp.excludeTools` in the chart).
+- **Named, persistent profiles.** Each profile is its own Pod + Service +
+  PVC, reconciled from durable PostgreSQL state, not an in-memory map. A
+  profile reclaimed for idleness restarts, with its storage, the next time an
+  agent connects to it.
 - **Real WebAuthn passkeys.** A supervised enrollment ceremony
   (`browser_passkey_enrollment_request` / `browser_passkey_status`) drives
   Playwright's virtual-authenticator API; credentials are stored
   AES-256-GCM-encrypted on the profile's own PVC and survive Pod recreation.
-- **Exclusive, fenced control leases.** Exactly one caller controls a
-  profile at a time; a second caller gets a documented 409, never a silent
-  takeover.
+- **Exclusive control.** Exactly one MCP session drives a profile at a time;
+  a second gets a 409, never a silent takeover. The gateway holds the lease
+  for the life of the session, so agents never see it.
 - **Hardened workers.** Non-root, read-only rootfs, dropped capabilities,
   `automountServiceAccountToken: false`, Localhost seccomp profile,
   default-deny `NetworkPolicy` — no worker ever holds a Kubernetes API
   token.
-- **SSRF-resistant navigation.** `browser_navigate` URLs are checked against
-  an allowlist policy before the worker ever sees them.
 - **Live-view admin dashboard.** A tile grid (`GET /admin`) backed by an SSE
   runtime-event stream shows every active profile as it reconciles, with
   click-through, single-use-ticket-gated noVNC sessions and polled
@@ -93,16 +99,23 @@ $ burrowser whoami --identity research-bot
 No profiles yet.
 ```
 
-**Point an MCP client at it.** `burrowser mcp` is a stdio MCP server that
-forwards to the gateway as that agent:
+**Point an MCP client at it.** `burrowser mcp` is a stdio MCP server that *is*
+your profile's Playwright MCP server, seen through the gateway:
 
 ```sh
 claude mcp add burrowser -- burrowser mcp --identity research-bot
 ```
 
-The agent then has the `browser_*` tools: create a profile, wait for it to be
-`READY`, take its lease with `browser_profile_open`, and navigate, snapshot,
-click and type. Each successful call keeps the lease alive.
+The profile defaults to the identity's name (`--profile NAME` picks another)
+and is created on first use; a cold start takes about fifteen seconds. The
+agent then has Playwright MCP's own tools — `browser_navigate`,
+`browser_snapshot` (an accessibility tree with `[ref=…]` handles),
+`browser_click`, `browser_type`, `browser_tabs`, `browser_take_screenshot` and
+the rest — with nothing about profiles or leases to manage, plus
+`browser_passkey_enrollment_request` / `browser_passkey_status` for the
+supervised passkey ceremony. To switch tools off, set `mcp.excludeTools`
+(comma-separated names) in the chart; `mcp.capabilities` chooses which of
+Playwright MCP's tool groups exist (`core` by default).
 
 **Administer.** IDs may be any unique prefix of four or more characters, and
 `list` commands take `--json` for scripting:
