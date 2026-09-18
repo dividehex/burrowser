@@ -46,6 +46,7 @@ worker/                       hardened per-profile Playwright container (separat
   src/main.ts                    authenticated RPC server (navigate/snapshot/click/type/authStatus)
   src/rpc.ts                     worker-side auth + allowlisted method validation
   src/persistence.ts              encrypted (AES-256-GCM) virtual-authenticator credential store
+  src/page-summary.ts             page title/heading-outline/visible-text extraction with size bounds
   entrypoint.sh                  starts Xvfb, x11vnc (read-only), then the RPC server
   Dockerfile                     non-root, read-only-rootfs Playwright image + x11vnc
 

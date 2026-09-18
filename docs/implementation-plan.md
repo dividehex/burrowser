@@ -138,10 +138,26 @@
    across a gap longer than the old 30-second lease), and was then deleted
    through the admin CLI in about 12 seconds with its Pod, Service, Secret,
    PVC and PersistentVolume all confirmed gone and both audit rows present.
+   Follow-up fixes found while using it: opening a profile whose browser
+   was reclaimed for idleness now restarts it (`acquireLease` hands a
+   `STOPPED` profile back to the controller as `ABSENT`; the controller only
+   persists state it changed itself, so a stale pass cannot undo that; the
+   restarted Pod re-mounts the same PVC, confirmed live), `browser_profile_open`
+   reports the profile's state with a hint to poll until `READY`, and browser
+   tools on a profile that is not yet `READY` say so instead of failing with a
+   connection error. On feedback from a Claude subagent that drove the MCP
+   tools, `browser_navigate` now returns the final URL, HTTP status and page
+   title, and `browser_snapshot` returns URL, title, a heading outline
+   (`{level, text}` for every h1-h6 in document order) and the visible text,
+   bounded to about 20,000 characters and 100 headings with
+   `textTruncated`/`headingsTruncated` flags (`worker/src/page-summary.ts`);
+   worker failure reasons such as `net::ERR_NAME_NOT_RESOLVED` now reach the
+   agent (first line only).
    The same CLI then removed all 22 test agents left in the database (from
    earlier sessions' live verification, plus the screenshot demo agents)
    and their 4 stopped profiles.
 
-Still open: TLS in front of the gateway (see `docs/threat-model.md`).
+Still open: TLS in front of the gateway (see `docs/threat-model.md`); the
+operator plans to add it with Let's Encrypt.
 
 No OpenBao or password/TOTP automation is planned for the initial release.
