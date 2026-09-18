@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Agent Browser — Live Runtimes</title>
+<title>Burrowser — Live Runtimes</title>
 <style>
   body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 24px; }
   h1 { font-size: 1.25rem; margin: 0 0 16px; }
@@ -25,7 +25,7 @@
 </style>
 </head>
 <body>
-  <h1>Agent Browser — Live Runtimes</h1>
+  <h1>Burrowser — Live Runtimes</h1>
   <div id="login">
     <input id="token" type="password" placeholder="admin bootstrap token" autocomplete="off" />
     <button id="loginButton">Sign in</button>
@@ -89,9 +89,9 @@
     // session itself - the __Host- cookie the server set is what actually authenticates every
     // request; this is just the CSRF token that pairs with it, which only a login response ever
     // hands back, so a plain reload has nowhere else to recover it from.
-    function rememberCsrfToken(value) { try { sessionStorage.setItem('agent-browser-admin-csrf', value); } catch { /* ignore */ } }
-    function recallCsrfToken() { try { return sessionStorage.getItem('agent-browser-admin-csrf') ?? ''; } catch { return ''; } }
-    function forgetCsrfToken() { try { sessionStorage.removeItem('agent-browser-admin-csrf'); } catch { /* ignore */ } }
+    function rememberCsrfToken(value) { try { sessionStorage.setItem('burrowser-admin-csrf', value); } catch { /* ignore */ } }
+    function recallCsrfToken() { try { return sessionStorage.getItem('burrowser-admin-csrf') ?? ''; } catch { return ''; } }
+    function forgetCsrfToken() { try { sessionStorage.removeItem('burrowser-admin-csrf'); } catch { /* ignore */ } }
 
     function signedIn() {
       loginBox.style.display = 'none';

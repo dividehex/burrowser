@@ -11,7 +11,7 @@ let context: BrowserContext | undefined;
 let page: Page | undefined;
 let enrollment: EnrollmentState | undefined;
 const credentialPath = '/profile/authenticator/credentials.enc';
-const credentialKey = process.env.AGENT_BROWSER_AUTHENTICATOR_KEY ? Buffer.from(process.env.AGENT_BROWSER_AUTHENTICATOR_KEY, 'base64url') : undefined;
+const credentialKey = process.env.BURROWSER_AUTHENTICATOR_KEY ? Buffer.from(process.env.BURROWSER_AUTHENTICATOR_KEY, 'base64url') : undefined;
 
 async function browserPage() {
   if (!context) {

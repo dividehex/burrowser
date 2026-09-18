@@ -5,19 +5,19 @@
 # `registry:2` Deployment). scripts/build-and-deploy-local.sh automates this
 # end to end for a single-node k3s + local registry setup.
 image:
-  repository: registry.local/agent-browser-controller
+  repository: registry.local/burrowser-controller
   digest: ''
   pullPolicy: IfNotPresent
-namespace: agent-browser
+namespace: burrowser
 workerImage:
-  repository: registry.local/agent-browser-worker
+  repository: registry.local/burrowser-worker
   digest: ''
   pullPolicy: IfNotPresent
-storageClass: agent-browser-local-path
-controllerSecretName: agent-browser-controller-secrets
+storageClass: burrowser-local-path
+controllerSecretName: burrowser-controller-secrets
 postgres:
   enabled: false
-  secretName: agent-browser-postgres
+  secretName: burrowser-postgres
 service:
   type: ClusterIP
   port: 8080

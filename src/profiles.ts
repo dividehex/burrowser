@@ -10,7 +10,7 @@ export function createProfile(store: ProfileStore, agent: Agent, name: string, n
   if (!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,62}$/.test(clean)) throw new Error('invalid profile name');
   if ([...store.profiles.values()].some(p => p.agentId === agent.id && p.name === clean)) throw new Error('profile name already exists');
   const id = randomUUID();
-  const profile = { id, agentId: agent.id, name: clean, pvcName: `ab-${id}`, state: 'ABSENT', createdAt: now, lastUsedAt: now };
+  const profile = { id, agentId: agent.id, name: clean, pvcName: `bw-${id}`, state: 'ABSENT', createdAt: now, lastUsedAt: now };
   store.profiles.set(id, profile);
   return profile;
 }

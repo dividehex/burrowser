@@ -39,7 +39,7 @@ worker/                       hardened per-profile Playwright container (separat
   Dockerfile                     non-root, read-only-rootfs Playwright image + x11vnc
 
 db/migrations/                 plain numbered .sql files, run via postgres-migrations
-charts/agent-browser/          Helm chart: Deployment, Service, RBAC, NetworkPolicy, StorageClass
+charts/burrowser/          Helm chart: Deployment, Service, RBAC, NetworkPolicy, StorageClass
 scripts/                       build-and-deploy-local.sh, backup/restore-postgres.sh,
                                 provision-postgres.ts, install-chromium-seccomp.sh
 tests/                         node:test unit + real-listener integration tests, plus tests/k8s/

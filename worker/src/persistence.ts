@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 export type VirtualCredential = { rpId: string; credentialId: string; userHandle: string; publicKey: string; privateKey: string; signCount?: number };
 type Envelope = { version: 1; iv: string; tag: string; ciphertext: string };
 
-function keyFromEnv(value = process.env.AGENT_BROWSER_AUTHENTICATOR_KEY) {
+function keyFromEnv(value = process.env.BURROWSER_AUTHENTICATOR_KEY) {
   if (!value) throw new Error('authenticator encryption key is required outside the profile volume');
   const key = Buffer.from(value, 'base64url'); if (key.length !== 32) throw new Error('authenticator encryption key must be 32 bytes'); return key;
 }

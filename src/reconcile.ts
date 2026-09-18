@@ -33,7 +33,7 @@ export async function reconcileProfile(profile: Profile, kube: KubernetesPort, i
 }
 
 export async function stopProfile(profile: Profile, kube: KubernetesPort, finalState = 'STOPPED') {
-  const podName = `ab-${profile.id}`;
+  const podName = `bw-${profile.id}`;
   await kube.delete('pod', podName);
   await kube.delete('service', podName);
   profile.state = finalState;

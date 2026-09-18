@@ -1,4 +1,4 @@
-# Agent Browser threat model
+# Burrowser threat model
 
 ## Assets
 

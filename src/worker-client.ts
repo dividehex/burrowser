@@ -4,8 +4,8 @@ export class HttpWorkerClient implements WorkerPort {
   private readonly endpoint: string;
   private readonly credential: string;
 
-  constructor(profileId: string, credential: string, namespace = process.env.KUBERNETES_NAMESPACE ?? 'agent-browser') {
-    this.endpoint = `http://ab-${profileId}.${namespace}.svc:8080/rpc`;
+  constructor(profileId: string, credential: string, namespace = process.env.KUBERNETES_NAMESPACE ?? 'burrowser') {
+    this.endpoint = `http://bw-${profileId}.${namespace}.svc:8080/rpc`;
     this.credential = credential;
   }
 

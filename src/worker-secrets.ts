@@ -34,8 +34,8 @@ export class KubernetesWorkerSecretProvider {
 
   private read(profile: Profile, secret: Secret): WorkerSecretMaterial {
     const controllerCredential = value(secret, 'WORKER_CONTROLLER_CREDENTIAL');
-    const authenticatorKey = value(secret, 'AGENT_BROWSER_AUTHENTICATOR_KEY');
-    const vncPassword = value(secret, 'AGENT_BROWSER_VNC_PASSWORD');
+    const authenticatorKey = value(secret, 'BURROWSER_AUTHENTICATOR_KEY');
+    const vncPassword = value(secret, 'BURROWSER_VNC_PASSWORD');
     if (!controllerCredential || !authenticatorKey || !vncPassword || Buffer.from(authenticatorKey, 'base64url').length !== 32) throw new Error(`worker Secret malformed for profile ${profile.id}`);
     return { controllerCredential, authenticatorKey, vncPassword };
   }

@@ -59,7 +59,7 @@ test('the admin runtime dashboard requires admin auth and streams live-state cha
   const initial = parseSseFrames(await cursor.readFor(150));
   assert.deepEqual(initial, [{ event: 'snapshot', data: [] }]);
 
-  const profile = { id: 'p1', agentId: 'a1', name: 'Main', pvcName: 'ab-p1', state: 'READY', createdAt: Date.now(), lastUsedAt: Date.now() };
+  const profile = { id: 'p1', agentId: 'a1', name: 'Main', pvcName: 'bw-p1', state: 'READY', createdAt: Date.now(), lastUsedAt: Date.now() };
   state.profiles.set(profile.id, profile as any);
   state.agents.set('a1', { id: 'a1', displayName: 'agent-a', publicKey: 'key' });
 

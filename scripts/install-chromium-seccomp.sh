@@ -5,7 +5,7 @@ set -eu
 # sync with the reviewed upstream file; a mismatch must stop installation.
 url='https://raw.githubusercontent.com/microsoft/playwright/main/utils/docker/seccomp_profile.json'
 sha256='cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849'
-target='/var/lib/kubelet/seccomp/agent-browser/chromium.json'
+target='/var/lib/kubelet/seccomp/burrowser/chromium.json'
 tmp="${target}.download"
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 command -v curl >/dev/null 2>&1 || { echo 'curl is required' >&2; exit 1; }

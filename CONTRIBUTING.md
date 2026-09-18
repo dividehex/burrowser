@@ -1,4 +1,4 @@
-# Contributing to Agent Browser
+# Contributing to Burrowser
 
 Thanks for taking the time to contribute. This is a small, actively
 developed project — issues and pull requests are both welcome.
@@ -7,7 +7,7 @@ developed project — issues and pull requests are both welcome.
 
 - Node.js >=22 (developed against Node 26).
 - Docker, if you're touching `Dockerfile` or `worker/Dockerfile`.
-- Helm, if you're touching `charts/agent-browser/`.
+- Helm, if you're touching `charts/burrowser/`.
 - A Kubernetes/K3s cluster and PostgreSQL server are only needed for
   end-to-end testing against a real deployment — the unit/integration test
   suite runs without either.
@@ -15,8 +15,8 @@ developed project — issues and pull requests are both welcome.
 ## Local setup
 
 ```sh
-git clone https://github.com/dividehex/agent-browser.git
-cd agent-browser
+git clone https://github.com/dividehex/burrowser.git
+cd burrowser
 npm install
 npm test
 ```
@@ -35,7 +35,7 @@ design choices behind the current layout before adding a new one).
 ### If you're changing the Helm chart
 
 ```sh
-helm lint charts/agent-browser \
+helm lint charts/burrowser \
   --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
   --set workerImage.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
 ```
@@ -72,10 +72,10 @@ CI builds both on every PR (build-only, not pushed — see
 
 ## Reporting bugs
 
-Open a [GitHub issue](https://github.com/dividehex/agent-browser/issues)
+Open a [GitHub issue](https://github.com/dividehex/burrowser/issues)
 with steps to reproduce, what you expected, and what actually happened.
-Include relevant logs (`kubectl logs -n agent-browser
-deployment/agent-browser-controller`) with any credentials or tokens
+Include relevant logs (`kubectl logs -n burrowser
+deployment/burrowser-controller`) with any credentials or tokens
 redacted.
 
 ## Reporting security issues

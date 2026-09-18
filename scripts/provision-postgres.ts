@@ -5,9 +5,9 @@ import { runMigrations } from '../src/migrate.ts';
 
 const envFile = process.argv[2];
 if (!envFile) throw new Error('usage: provision-postgres.ts <admin .env file> [output file] (admin .env must define POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)');
-const outputFile = process.argv[3] ?? '.agent-browser-postgres.env';
-const username = process.env.AGENT_BROWSER_NEW_DB_USER ?? 'agent_browser';
-const database = process.env.AGENT_BROWSER_NEW_DB_NAME ?? 'agent_browser';
+const outputFile = process.argv[3] ?? '.burrowser-postgres.env';
+const username = process.env.BURROWSER_NEW_DB_USER ?? 'burrowser';
+const database = process.env.BURROWSER_NEW_DB_NAME ?? 'burrowser';
 if (!/^[a-z][a-z0-9_]{0,62}$/.test(username) || !/^[a-z][a-z0-9_]{0,62}$/.test(database)) throw new Error('new PostgreSQL role/database names are invalid');
 
 function readDotenv(text: string) {
@@ -45,7 +45,7 @@ try {
   try { await runMigrations(appPool); }
   finally { await appPool.end(); }
   await mkdir(outputFile.substring(0, outputFile.lastIndexOf('/')) || '.', { recursive: true });
-  await writeFile(outputFile, `AGENT_BROWSER_DB_USER=${username}\nAGENT_BROWSER_DB_NAME=${database}\nAGENT_BROWSER_DB_PASSWORD=${password}\nDATABASE_URL=${appUrl}\n`, { mode: 0o600 });
+  await writeFile(outputFile, `BURROWSER_DB_USER=${username}\nBURROWSER_DB_NAME=${database}\nBURROWSER_DB_PASSWORD=${password}\nDATABASE_URL=${appUrl}\n`, { mode: 0o600 });
   console.log(`created isolated PostgreSQL role/database and wrote credentials to ${outputFile}`);
 } catch (error) {
   if (roleCreated || databaseCreated) {

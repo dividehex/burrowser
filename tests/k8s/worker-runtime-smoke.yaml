@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ab-runtime-pvc
-  namespace: agent-browser
+  name: bw-runtime-pvc
+  namespace: burrowser
   labels:
-    app.kubernetes.io/name: agent-browser-worker
-    agent-browser/test: runtime-smoke
+    app.kubernetes.io/name: burrowser-worker
+    burrowser/test: runtime-smoke
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: agent-browser-local-path
+  storageClassName: burrowser-local-path
   resources:
     requests:
       storage: 1Gi
@@ -16,37 +16,37 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ab-runtime-worker-auth
-  namespace: agent-browser
+  name: bw-runtime-worker-auth
+  namespace: burrowser
   labels:
-    agent-browser/test: runtime-smoke
+    burrowser/test: runtime-smoke
 type: Opaque
 stringData:
   WORKER_CONTROLLER_CREDENTIAL: disposable-runtime-secret
-  AGENT_BROWSER_AUTHENTICATOR_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  BURROWSER_AUTHENTICATOR_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ---
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ab-runtime-worker
-  namespace: agent-browser
+  name: bw-runtime-worker
+  namespace: burrowser
   labels:
-    app.kubernetes.io/name: agent-browser-worker
-    agent-browser/test: runtime-smoke
+    app.kubernetes.io/name: burrowser-worker
+    burrowser/test: runtime-smoke
 spec:
   automountServiceAccountToken: false
-  serviceAccountName: agent-browser-worker
+  serviceAccountName: burrowser-worker
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: agent-browser/chromium.json
+      localhostProfile: burrowser/chromium.json
   containers:
   - name: worker
-    image: agent-browser-worker:dev
+    image: burrowser-worker:dev
     imagePullPolicy: Never
     envFrom:
     - secretRef:
-        name: ab-runtime-worker-auth
+        name: bw-runtime-worker-auth
     env:
     - name: DEBUG
       value: pw:browser*
@@ -74,7 +74,7 @@ spec:
     - {name: home, mountPath: /home/browser}
   volumes:
   - name: profile
-    persistentVolumeClaim: {claimName: ab-runtime-pvc}
+    persistentVolumeClaim: {claimName: bw-runtime-pvc}
   - name: tmp
     emptyDir: {sizeLimit: 256Mi}
   - name: shm
@@ -85,13 +85,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ab-runtime-worker
-  namespace: agent-browser
+  name: bw-runtime-worker
+  namespace: burrowser
   labels:
-    agent-browser/test: runtime-smoke
+    burrowser/test: runtime-smoke
 spec:
   type: ClusterIP
   selector:
-    agent-browser/test: runtime-smoke
+    burrowser/test: runtime-smoke
   ports:
   - {name: rpc, port: 8080, targetPort: rpc}

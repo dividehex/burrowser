@@ -64,9 +64,9 @@ const TOOL_SCHEMAS: Record<string, z.ZodRawShape> = {
 };
 
 function createSessionServer(options: McpHttpOptions): McpServer {
-  const server = new McpServer({ name: 'agent-browser', version: '0.1.0' }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: 'burrowser', version: '0.1.0' }, { capabilities: { tools: {} } });
   for (const name of MCP_TOOLS) {
-    server.registerTool(name, { description: `Agent Browser ${name}`, inputSchema: TOOL_SCHEMAS[name] }, async (args: any) => {
+    server.registerTool(name, { description: `Burrowser ${name}`, inputSchema: TOOL_SCHEMAS[name] }, async (args: any) => {
       try {
         const needsWorker = NEEDS_WORKER.has(name);
         const worker = options.worker ?? (needsWorker && args.profile_id && options.workerForProfile ? await options.workerForProfile(await profileForTool(options.store, options.agent.id, args.profile_id)) : undefined);

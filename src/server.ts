@@ -32,13 +32,13 @@ const RATE_LIMITS: Record<string, { points: number; duration: number }> = {
   '/v1/identity/token': { points: 30, duration: 60 },
 };
 
-export function createGateway(state = makeState(), adminToken = process.env.AGENT_BROWSER_ADMIN_BOOTSTRAP, tokenSigningKey = process.env.AGENT_BROWSER_TOKEN_KEY ?? 'development-only-change-me', repository?: PostgresRepository, workerForProfile?: (profile: Profile) => Promise<WorkerPort>, viewSecretsForProfile?: (profile: Profile) => Promise<{ vncPassword: string }>, viewTargetForProfile?: (profileId: string) => { host: string; port: number }, runtimeEventIntervalMs = 2000) {
+export function createGateway(state = makeState(), adminToken = process.env.BURROWSER_ADMIN_BOOTSTRAP, tokenSigningKey = process.env.BURROWSER_TOKEN_KEY ?? 'development-only-change-me', repository?: PostgresRepository, workerForProfile?: (profile: Profile) => Promise<WorkerPort>, viewSecretsForProfile?: (profile: Profile) => Promise<{ vncPassword: string }>, viewTargetForProfile?: (profileId: string) => { host: string; port: number }, runtimeEventIntervalMs = 2000) {
   const mcpSessions = new Map<string, McpSession>();
   const adminAuth = new AdminAuth(adminToken);
   const rateLimiters = new Map(Object.entries(RATE_LIMITS).map(([path, options]) => [path, new RateLimiterMemory(options)]));
   const viewTickets: ViewTicketStore = new Map();
-  const namespace = process.env.KUBERNETES_NAMESPACE ?? 'agent-browser';
-  const dialTarget = viewTargetForProfile ?? (profileId => ({ host: `ab-${profileId}.${namespace}.svc`, port: 5900 }));
+  const namespace = process.env.KUBERNETES_NAMESPACE ?? 'burrowser';
+  const dialTarget = viewTargetForProfile ?? (profileId => ({ host: `bw-${profileId}.${namespace}.svc`, port: 5900 }));
   const runtimeSource = repository ? postgresRuntimeSource(repository) : inMemoryRuntimeSource(state);
   const authorizeAdmin = (headers: Record<string, string | string[] | undefined>) => Boolean(adminAuth.authenticate(headers)) || Boolean(adminToken && headers.authorization === `Bearer ${adminToken}`);
   const server = createServer(async (req, res) => {
@@ -147,7 +147,7 @@ export function createGateway(state = makeState(), adminToken = process.env.AGEN
       const agent = repository ? await repository.findAgent(claims!.sub) : verifyAccessToken(state, auth, challenge, tokenSigningKey);
       if (!agent || agent.revokedAt) throw new Error('invalid token');
       if (url.pathname === '/mcp') {
-        return handleMcpHttp(req, res, { store: repository ? postgresMcpStore(repository) : state, agent, sessions: mcpSessions, workerForProfile, allowedOrigins: process.env.AGENT_BROWSER_ALLOWED_ORIGIN ? [process.env.AGENT_BROWSER_ALLOWED_ORIGIN] : undefined });
+        return handleMcpHttp(req, res, { store: repository ? postgresMcpStore(repository) : state, agent, sessions: mcpSessions, workerForProfile, allowedOrigins: process.env.BURROWSER_ALLOWED_ORIGIN ? [process.env.BURROWSER_ALLOWED_ORIGIN] : undefined });
       }
       if (req.method === 'GET' && url.pathname === '/v1/profiles') return json(res, 200, { profiles: repository ? await repository.listProfiles(agent.id) : [...state.profiles.values()].filter(p => p.agentId === agent.id) });
       if (req.method === 'POST' && url.pathname === '/v1/profiles') {
@@ -206,8 +206,8 @@ async function startProductionGateway() {
   let controller: ReturnType<typeof createPostgresKubernetesController> | undefined;
   if (database && process.env.KUBERNETES_SERVICE_HOST) {
     const kube = new KubernetesApiClient(inClusterKubernetesOptions());
-    const workerImage = process.env.AGENT_BROWSER_WORKER_IMAGE;
-    if (!workerImage) throw new Error('AGENT_BROWSER_WORKER_IMAGE is required when PostgreSQL is enabled');
+    const workerImage = process.env.BURROWSER_WORKER_IMAGE;
+    if (!workerImage) throw new Error('BURROWSER_WORKER_IMAGE is required when PostgreSQL is enabled');
     const secrets = new KubernetesWorkerSecretProvider(kube);
     workerForProfile = async profile => new HttpWorkerClient(profile.id, (await secrets.ensure(profile)).controllerCredential);
     viewSecretsForProfile = async profile => secrets.ensure(profile);

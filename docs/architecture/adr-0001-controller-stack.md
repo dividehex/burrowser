@@ -5,7 +5,7 @@ Date: 2026-09-17
 
 ## Context
 
-Agent Browser needs an authenticated HTTP/MCP gateway, durable ownership and
+Burrowser needs an authenticated HTTP/MCP gateway, durable ownership and
 lease state, and a Kubernetes reconciler. Browser workers must use TypeScript
 because Playwright is a first-class dependency. This checkout contains no
 existing runtime or dependency policy, and the development host has Node.js

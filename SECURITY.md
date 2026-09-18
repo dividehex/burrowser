@@ -1,6 +1,6 @@
 # Security Policy
 
-Agent Browser is self-hosted software that provisions and controls
+Burrowser is self-hosted software that provisions and controls
 per-agent Kubernetes browser workloads with real credentials (agent
 identity keys, WebAuthn passkeys, admin sessions). See
 [`docs/threat-model.md`](docs/threat-model.md) for the assets, trust

@@ -38,7 +38,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: false
-          tags: agent-browser-${{ matrix.name }}:ci
+          tags: burrowser-${{ matrix.name }}:ci
 
   helm-lint:
     runs-on: ubuntu-latest
@@ -46,11 +46,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
       - run: |
-          helm lint charts/agent-browser \
+          helm lint charts/burrowser \
             --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             --set workerImage.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
       - run: |
-          helm template charts/agent-browser \
+          helm template charts/burrowser \
             --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             --set workerImage.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             > /dev/null

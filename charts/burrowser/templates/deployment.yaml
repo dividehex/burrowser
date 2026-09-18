@@ -5,22 +5,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agent-browser-controller
+  name: burrowser-controller
   labels:
-    app.kubernetes.io/name: agent-browser-controller
+    app.kubernetes.io/name: burrowser-controller
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: agent-browser-controller
+      app.kubernetes.io/name: burrowser-controller
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: agent-browser-controller
+        app.kubernetes.io/name: burrowser-controller
     spec:
-      serviceAccountName: agent-browser-controller
+      serviceAccountName: burrowser-controller
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
@@ -55,20 +55,20 @@ spec:
         env:
         - name: PORT
           value: "8080"
-        - name: AGENT_BROWSER_WORKER_IMAGE
+        - name: BURROWSER_WORKER_IMAGE
           value: {{ $workerImage | quote }}
-        - name: AGENT_BROWSER_WORKER_IMAGE_PULL_POLICY
+        - name: BURROWSER_WORKER_IMAGE_PULL_POLICY
           value: {{ .Values.workerImage.pullPolicy | quote }}
-        - name: AGENT_BROWSER_TOKEN_KEY
+        - name: BURROWSER_TOKEN_KEY
           valueFrom:
             secretKeyRef:
               name: {{ .Values.controllerSecretName }}
-              key: AGENT_BROWSER_TOKEN_KEY
-        - name: AGENT_BROWSER_ADMIN_BOOTSTRAP
+              key: BURROWSER_TOKEN_KEY
+        - name: BURROWSER_ADMIN_BOOTSTRAP
           valueFrom:
             secretKeyRef:
               name: {{ .Values.controllerSecretName }}
-              key: AGENT_BROWSER_ADMIN_BOOTSTRAP
+              key: BURROWSER_ADMIN_BOOTSTRAP
         {{- if .Values.postgres.enabled }}
         - name: DATABASE_URL
           valueFrom:

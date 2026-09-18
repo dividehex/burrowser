@@ -1,4 +1,5 @@
-.agent-browser-postgres.env
+.burrowser-postgres.env
+.burrowser-admin-bootstrap.env
 node_modules/
 *.log
 backups/

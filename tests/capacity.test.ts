@@ -6,7 +6,7 @@ import { createGateway, makeState } from '../src/server.ts';
 
 test('the controller reconciles a large number of profiles in one tick without errors or runaway latency', async () => {
   const PROFILE_COUNT = 250;
-  const profiles: any[] = Array.from({ length: PROFILE_COUNT }, (_, i) => ({ id: `p${i}`, agentId: 'a', name: `Profile ${i}`, pvcName: `ab-p${i}`, state: 'ABSENT', createdAt: 0, lastUsedAt: Date.now() }));
+  const profiles: any[] = Array.from({ length: PROFILE_COUNT }, (_, i) => ({ id: `p${i}`, agentId: 'a', name: `Profile ${i}`, pvcName: `bw-p${i}`, state: 'ABSENT', createdAt: 0, lastUsedAt: Date.now() }));
   const objects = new Map<string, unknown>();
   const kube: any = {
     get: async (kind: string, name: string) => objects.get(`${kind}/${name}`),

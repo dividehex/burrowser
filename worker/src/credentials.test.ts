@@ -16,7 +16,7 @@ function fakeCredentials(seed: PlaywrightCredential[] = []): CredentialsApi {
 }
 
 test('restores encrypted credentials before installation and persists current authenticator state', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'agent-browser-'));
+  const dir = await mkdtemp(join(tmpdir(), 'burrowser-'));
   const path = join(dir, 'authenticator', 'credentials.enc');
   const key = Buffer.alloc(32, 4);
   const seed = fakeCredentials([{ rpId: 'example.com', id: 'id', userHandle: 'user', publicKey: 'pub', privateKey: 'secret' }]);
@@ -35,7 +35,7 @@ test('restores encrypted credentials before installation and persists current au
 
 test('missing credential file installs an empty authenticator', async () => {
   const credentials = fakeCredentials();
-  await restoreCredentials({ credentials }, '/tmp/agent-browser-no-such-profile/credentials.enc', Buffer.alloc(32));
+  await restoreCredentials({ credentials }, '/tmp/burrowser-no-such-profile/credentials.enc', Buffer.alloc(32));
   assert.deepEqual(await credentials.get(), []);
 });
 

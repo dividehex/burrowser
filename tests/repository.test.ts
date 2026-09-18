@@ -89,7 +89,7 @@ test('revokeAgent updates the row and fails closed when the agent is missing', a
 
 test('controller queries are not tenant-filtered and return active durable state', async () => {
   const client = new FakeClient([
-    { rows: [{ id: 'p', agent_id: 'a', name: 'Main', pvc_name: 'ab-p', state: 'READY', created_at: new Date(0), last_used_at: new Date(0) }] },
+    { rows: [{ id: 'p', agent_id: 'a', name: 'Main', pvc_name: 'bw-p', state: 'READY', created_at: new Date(0), last_used_at: new Date(0) }] },
     { rows: [{ profile_id: 'p', owner_client_id: 'c', fencing_generation: '2', expires_at: new Date(1000) }] },
   ]);
   const repository = new PostgresRepository(new FakePool(client));

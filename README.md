@@ -1,13 +1,13 @@
-# Agent Browser
+# Burrowser
 
 A self-hosted, Kubernetes-native browser service that gives AI agents their
 own isolated, persistent Chromium profiles — complete with real WebAuthn
 passkeys — over MCP.
 
-[![CI](https://github.com/dividehex/agent-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/dividehex/agent-browser/actions/workflows/ci.yml)
+[![CI](https://github.com/dividehex/burrowser/actions/workflows/ci.yml/badge.svg)](https://github.com/dividehex/burrowser/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-![The Agent Browser admin dashboard after signing in, showing the live-runtimes tile grid](docs/assets/admin-dashboard.png)
+![The Burrowser admin dashboard after signing in, showing the live-runtimes tile grid](docs/assets/admin-dashboard.png)
 *The admin dashboard (`GET /admin`) — a real, authenticated screenshot
 from a running instance, with four real agents each running their own
 profile: `research-bot`, `docs-bot`, `qa-bot`, and `support-bot`, each
@@ -20,7 +20,7 @@ view; a tile disappears once its profile stops.*
 ## Why this exists
 
 MCP clients that need a real browser usually get one shared, ephemeral
-Chromium instance with no persistent identity. Agent Browser instead gives
+Chromium instance with no persistent identity. Burrowser instead gives
 each authenticated agent its own named, **persistent** browser profiles:
 cookies, local storage, and a real virtual WebAuthn authenticator all
 survive pod restarts and node reboots, because they live on a dedicated
@@ -70,7 +70,7 @@ $ curl -s -X POST https://gateway.internal/v1/profiles \
     -H 'Content-Type: application/json' \
     -d '{"name":"research"}'
 
-{"id":"…","name":"research","state":"ABSENT","pvcName":"ab-…"}
+{"id":"…","name":"research","state":"ABSENT","pvcName":"bw-…"}
 ```
 *(illustrative — real IDs are UUIDs) An authenticated agent creating a
 named, persistent browser profile via the REST API (the same operation is
@@ -86,7 +86,7 @@ Requires Node.js >=22 (developed against Node 26).
 ```sh
 npm install
 npm test
-AGENT_BROWSER_ADMIN_BOOTSTRAP=change-me AGENT_BROWSER_TOKEN_KEY=$(openssl rand -hex 32) npm start
+BURROWSER_ADMIN_BOOTSTRAP=change-me BURROWSER_TOKEN_KEY=$(openssl rand -hex 32) npm start
 ```
 
 That starts the gateway in-memory only (no `DATABASE_URL` /
@@ -96,7 +96,7 @@ surface without a cluster. `GET /health` should return `200`.
 ### Real deployment
 
 This assumes you already have a Kubernetes (or K3s) cluster and a
-PostgreSQL server — Agent Browser doesn't provision either for you, and
+PostgreSQL server — Burrowser doesn't provision either for you, and
 **no official container images are published.** Build both images from
 source (`Dockerfile`, `worker/Dockerfile`) and push them to a registry your
 cluster can pull from: your own private registry, or a simple `registry:2`
@@ -109,7 +109,7 @@ release to the resulting digests in one step:
 ./scripts/build-and-deploy-local.sh
 ```
 
-The chart is under `charts/agent-browser/`; see `values.yaml` for the
+The chart is under `charts/burrowser/`; see `values.yaml` for the
 knobs (`image.repository`, `workerImage.repository`, `postgres.secretName`,
 etc.) — `image.digest`/`workerImage.digest` are required unless
 `pullPolicy: Never`, so a bad or missing build fails the Helm render

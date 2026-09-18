@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ab-smoke-pvc
+  name: bw-smoke-pvc
   labels:
-    app.kubernetes.io/name: agent-browser-worker
-    agent-browser/test: storage-smoke
+    app.kubernetes.io/name: burrowser-worker
+    burrowser/test: storage-smoke
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: agent-browser-local-path
+  storageClassName: burrowser-local-path
   resources:
     requests:
       storage: 1Gi
@@ -15,16 +15,16 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ab-smoke-worker
+  name: bw-smoke-worker
   labels:
-    app.kubernetes.io/name: agent-browser-worker
-    agent-browser/test: storage-smoke
+    app.kubernetes.io/name: burrowser-worker
+    burrowser/test: storage-smoke
 spec:
   automountServiceAccountToken: false
-  serviceAccountName: agent-browser-worker
+  serviceAccountName: burrowser-worker
   containers:
   - name: worker
-    image: agent-browser-worker:dev
+    image: burrowser-worker:dev
     imagePullPolicy: Never
     command: [node, -e]
     args: ["require('fs').mkdirSync('/profile/chromium',{recursive:true}); require('fs').writeFileSync('/profile/chromium/smoke.txt','ok'); setTimeout(()=>{}, 3600000)"]
@@ -40,18 +40,18 @@ spec:
   volumes:
   - name: profile
     persistentVolumeClaim:
-      claimName: ab-smoke-pvc
+      claimName: bw-smoke-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ab-smoke-worker
+  name: bw-smoke-worker
   labels:
-    agent-browser/test: storage-smoke
+    burrowser/test: storage-smoke
 spec:
   type: ClusterIP
   selector:
-    agent-browser/test: storage-smoke
+    burrowser/test: storage-smoke
   ports:
   - name: rpc
     port: 8080

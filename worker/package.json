@@ -1,5 +1,5 @@
 {
-  "name": "agent-browser-worker",
+  "name": "burrowser-worker",
   "private": true,
   "type": "module",
   "scripts": {"start": "node --experimental-strip-types src/main.ts"},

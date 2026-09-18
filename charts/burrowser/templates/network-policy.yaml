@@ -1,17 +1,17 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: agent-browser-worker-default-deny
+  name: burrowser-worker-default-deny
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: agent-browser-worker
+      app.kubernetes.io/name: burrowser-worker
   policyTypes: [Ingress, Egress]
   ingress:
   - from:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: agent-browser-controller
+          app.kubernetes.io/name: burrowser-controller
     ports:
     - protocol: TCP
       port: 8080

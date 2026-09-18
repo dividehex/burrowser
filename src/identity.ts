@@ -63,8 +63,8 @@ export function peekChallenge(store: ChallengeStore, agentId: string, now = Date
 }
 
 export function issueAccessToken(agent: Agent, challenge: string, signingKey: string, now = Date.now(), ttlMs = 15 * 60_000) {
-  const header = b64(JSON.stringify({ alg: 'EdDSA', typ: 'ABAT', aud: 'agent-browser' }));
-  const payload = b64(JSON.stringify({ sub: agent.id, aud: 'agent-browser', iat: now, exp: now + ttlMs, challenge }));
+  const header = b64(JSON.stringify({ alg: 'EdDSA', typ: 'ABAT', aud: 'burrowser' }));
+  const payload = b64(JSON.stringify({ sub: agent.id, aud: 'burrowser', iat: now, exp: now + ttlMs, challenge }));
   const body = `${header}.${payload}`;
   return `${body}.${b64(createHmac('sha256', signingKey).update(body).digest())}`;
 }
@@ -80,7 +80,7 @@ export function verifyAccessTokenClaims(token: string, challenge: string, signin
   const [header, payload, signature] = token.split('.');
   if (!header || !payload || !signature) throw new Error('invalid token');
   const claims = JSON.parse(unb64(payload).toString());
-  if (claims.aud !== 'agent-browser' || claims.challenge !== challenge || claims.exp <= now) throw new Error('invalid token');
+  if (claims.aud !== 'burrowser' || claims.challenge !== challenge || claims.exp <= now) throw new Error('invalid token');
   const expected = createHmac('sha256', signingKey).update(`${header}.${payload}`).digest();
   if (expected.length !== unb64(signature).length || !timingSafeEqual(expected, unb64(signature))) throw new Error('invalid token');
   return claims as { sub: string; aud: string; iat: number; exp: number; challenge: string };

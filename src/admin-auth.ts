@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 type Session = { csrfToken: string; expiresAt: number };
 type RequestHeaders = { cookie?: string | string[]; [key: string]: unknown };
 
-const cookieName = '__Host-agent_browser_admin';
+const cookieName = '__Host-burrowser_admin';
 const digest = (value: string) => createHash('sha256').update(value).digest();
 const equal = (left: string, right: string) => {
   const a = digest(left); const b = digest(right);
