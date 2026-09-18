@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Browser - live view</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px system-ui, sans-serif; }
+  #status { padding: 8px 12px; background: #1a1a1a; border-bottom: 1px solid #333; }
+  #status.error { color: #f66; }
+  #screen { height: calc(100% - 37px); }
+</style>
+</head>
+<body>
+<div id="status">Connecting...</div>
+<div id="screen"></div>
+<script type="module">
+import RFB from '/novnc/core/rfb.js';
+
+const statusEl = document.getElementById('status');
+const screenEl = document.getElementById('screen');
+const params = new URLSearchParams(location.hash.slice(1));
+const token = params.get('token');
+const challenge = params.get('challenge');
+const profileId = params.get('profile');
+// An admin dashboard tile mints its own ticket (its session cookie can't be attached to a
+// WebSocket handshake either, same reason the agent flow below needs one) and hands this page
+// an already-minted ticket, skipping the POST this page would otherwise make itself.
+const presetTicket = params.get('ticket');
+const presetVncPassword = params.get('vnc_password');
+
+function fail(message) {
+  statusEl.textContent = message;
+  statusEl.className = 'error';
+}
+
+if (!profileId || (!presetTicket && (!token || !challenge))) {
+  fail('This page needs #token=...&challenge=...&profile=... (agent session) or #ticket=...&vnc_password=...&profile=... (admin dashboard) in the URL.');
+} else {
+  connect();
+}
+
+async function connect() {
+  let ticket = presetTicket;
+  let vncPassword = presetVncPassword;
+  if (!ticket) {
+    statusEl.textContent = 'Requesting a view ticket...';
+    const ticketResp = await fetch(`/v1/profiles/${encodeURIComponent(profileId)}/view-ticket`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'x-agent-challenge': challenge },
+    });
+    if (!ticketResp.ok) { fail(`Could not get a view ticket (HTTP ${ticketResp.status}).`); return; }
+    ({ ticket, vnc_password: vncPassword } = await ticketResp.json());
+  }
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${proto}://${location.host}/v1/profiles/${encodeURIComponent(profileId)}/view?ticket=${encodeURIComponent(ticket)}`;
+
+  statusEl.textContent = 'Negotiating VNC protocol...';
+  const rfb = new RFB(screenEl, wsUrl, { credentials: { password: vncPassword }, viewOnly: true });
+  rfb.addEventListener('connect', () => { statusEl.textContent = `Connected: ${rfb.desktopName ?? profileId}`; });
+  rfb.addEventListener('disconnect', event => { fail(event.detail.clean ? 'Disconnected.' : 'Connection lost unexpectedly.'); });
+  rfb.addEventListener('securityfailure', event => fail(`VNC authentication failed: ${event.detail.reason ?? event.detail.status}`));
+}
+</script>
+</body>
+</html>

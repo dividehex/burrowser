@@ -1,0 +1,23 @@
+# No official images are published for this project. Build both images from
+# source (see the root Dockerfile and worker/Dockerfile) and push them to a
+# registry your cluster can pull from — your own private registry, or one
+# you run inside the cluster itself (k3s: https://k3d.io or a plain
+# `registry:2` Deployment). scripts/build-and-deploy-local.sh automates this
+# end to end for a single-node k3s + local registry setup.
+image:
+  repository: registry.local/agent-browser-controller
+  digest: ''
+  pullPolicy: IfNotPresent
+namespace: agent-browser
+workerImage:
+  repository: registry.local/agent-browser-worker
+  digest: ''
+  pullPolicy: IfNotPresent
+storageClass: agent-browser-local-path
+controllerSecretName: agent-browser-controller-secrets
+postgres:
+  enabled: false
+  secretName: agent-browser-postgres
+service:
+  type: ClusterIP
+  port: 8080

@@ -1,0 +1,8 @@
+{
+  "name": "agent-browser-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {"start": "node --experimental-strip-types src/main.ts"},
+  "dependencies": {"playwright": "1.61.0"},
+  "engines": {"node": ">=22"}
+}

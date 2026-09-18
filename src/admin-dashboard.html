@@ -1,0 +1,188 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Agent Browser — Live Runtimes</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 24px; }
+  h1 { font-size: 1.25rem; margin: 0 0 16px; }
+  #login { display: flex; gap: 8px; margin-bottom: 24px; align-items: center; }
+  #login input { padding: 6px 10px; background: #1b1b1b; border: 1px solid #333; color: #eee; border-radius: 4px; }
+  #login button { padding: 6px 14px; border-radius: 4px; border: 1px solid #333; background: #263238; color: #eee; cursor: pointer; }
+  #loginStatus { color: #999; font-size: 0.85rem; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .tile { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 12px; }
+  .tile .name { font-weight: 600; }
+  .tile .agent { color: #999; font-size: 0.85rem; margin-top: 2px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; margin-top: 8px; }
+  .badge.READY { background: #1b5e20; color: #c8e6c9; }
+  .badge.STARTING { background: #6d4c00; color: #ffe082; }
+  .badge.IDLE { background: #263238; color: #b0bec5; }
+  .tile .thumb { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 4px; background: #000; display: block; margin-top: 8px; }
+  .tile .view { margin-top: 8px; display: block; padding: 4px 10px; border-radius: 4px; border: 1px solid #333; background: #263238; color: #eee; cursor: pointer; font-size: 0.8rem; }
+  .tile .view:disabled { opacity: 0.5; cursor: default; }
+  #empty { color: #777; }
+</style>
+</head>
+<body>
+  <h1>Agent Browser — Live Runtimes</h1>
+  <div id="login">
+    <input id="token" type="password" placeholder="admin bootstrap token" autocomplete="off" />
+    <button id="loginButton">Sign in</button>
+    <span id="loginStatus"></span>
+  </div>
+  <div id="grid"></div>
+  <p id="empty">No live runtimes yet — sign in above.</p>
+  <script>
+    const tiles = new Map();
+    const grid = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+    const loginBox = document.getElementById('login');
+    let csrfToken = '';
+
+    // Live per-tile thumbnails, per agent-browser-codex-handoff.md line 60: "Only start streams
+    // for visible tiles (IntersectionObserver) and cap concurrent streams; optional
+    // thumbnails/snapshot polling at high counts." A thumbnail is a cheap approximation of the
+    // real noVNC feed - one JPEG poll per visible tile rather than a persistent WebSocket per
+    // tile - so the tile visibly changes as the underlying session actually gets used, without
+    // multiplying live VNC connections across every profile whether anyone is looking or not.
+    const THUMBNAIL_INTERVAL_MS = 3000;
+    const MAX_CONCURRENT_THUMBNAILS = 4;
+    let inFlightThumbnails = 0;
+    const thumbTimers = new Map();
+
+    async function refreshThumbnail(profileId, img) {
+      if (inFlightThumbnails >= MAX_CONCURRENT_THUMBNAILS) return; // try again next tick rather than queueing
+      inFlightThumbnails++;
+      try {
+        const response = await fetch(`/admin/profiles/${encodeURIComponent(profileId)}/thumbnail`);
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const previous = img.src;
+        img.src = url;
+        if (previous && previous.startsWith('blob:')) URL.revokeObjectURL(previous);
+      } catch {
+        // A single missed frame is not worth surfacing - the next visible tick will retry.
+      } finally {
+        inFlightThumbnails--;
+      }
+    }
+
+    const visibilityObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const profileId = entry.target.dataset.profileId;
+        const img = entry.target.querySelector('.thumb');
+        if (entry.isIntersecting) {
+          if (thumbTimers.has(profileId)) continue;
+          refreshThumbnail(profileId, img);
+          thumbTimers.set(profileId, setInterval(() => refreshThumbnail(profileId, img), THUMBNAIL_INTERVAL_MS));
+        } else {
+          clearInterval(thumbTimers.get(profileId));
+          thumbTimers.delete(profileId);
+        }
+      }
+    }, { threshold: 0.1 });
+
+    // sessionStorage is per-tab and per-viewer; it never leaves this browser and is only ever
+    // used to avoid re-typing the bootstrap token on a reload of the same tab. It is not the
+    // session itself - the __Host- cookie the server set is what actually authenticates every
+    // request; this is just the CSRF token that pairs with it, which only a login response ever
+    // hands back, so a plain reload has nowhere else to recover it from.
+    function rememberCsrfToken(value) { try { sessionStorage.setItem('agent-browser-admin-csrf', value); } catch { /* ignore */ } }
+    function recallCsrfToken() { try { return sessionStorage.getItem('agent-browser-admin-csrf') ?? ''; } catch { return ''; } }
+    function forgetCsrfToken() { try { sessionStorage.removeItem('agent-browser-admin-csrf'); } catch { /* ignore */ } }
+
+    function signedIn() {
+      loginBox.style.display = 'none';
+      empty.textContent = 'No live runtimes right now.';
+      connect();
+    }
+
+    async function openLiveView(profileId, button) {
+      button.disabled = true;
+      button.textContent = 'Opening...';
+      try {
+        const response = await fetch(`/admin/profiles/${encodeURIComponent(profileId)}/view-ticket`, { method: 'POST', headers: { 'x-csrf-token': csrfToken } });
+        if (!response.ok) throw new Error('view-ticket request failed');
+        const { ticket, vnc_password: vncPassword } = await response.json();
+        const hash = new URLSearchParams({ profile: profileId, ticket, vnc_password: vncPassword });
+        window.open(`/view#${hash.toString()}`, '_blank');
+      } catch {
+        button.textContent = 'Failed - retry';
+      } finally {
+        button.disabled = false;
+        if (button.textContent === 'Opening...') button.textContent = 'View';
+      }
+    }
+
+    function renderTile(runtime) {
+      let el = tiles.get(runtime.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'tile';
+        el.dataset.profileId = runtime.id;
+        el.innerHTML = '<div class="name"></div><div class="agent"></div><span class="badge"></span><img class="thumb" alt="live preview" /><button class="view" type="button">View</button>';
+        el.querySelector('.view').addEventListener('click', () => openLiveView(runtime.id, el.querySelector('.view')));
+        grid.appendChild(el);
+        tiles.set(runtime.id, el);
+        visibilityObserver.observe(el);
+      }
+      el.querySelector('.name').textContent = runtime.name;
+      el.querySelector('.agent').textContent = runtime.agentDisplayName;
+      const badge = el.querySelector('.badge');
+      badge.textContent = runtime.state;
+      badge.className = 'badge ' + runtime.state;
+      empty.style.display = 'none';
+    }
+
+    function removeTile(id) {
+      const el = tiles.get(id);
+      if (el) {
+        visibilityObserver.unobserve(el);
+        clearInterval(thumbTimers.get(id));
+        thumbTimers.delete(id);
+        el.remove();
+        tiles.delete(id);
+      }
+      if (tiles.size === 0) empty.style.display = '';
+    }
+
+    function connect() {
+      const source = new EventSource('/admin/runtimes/events');
+      source.addEventListener('snapshot', event => { for (const runtime of JSON.parse(event.data)) renderTile(runtime); });
+      source.addEventListener('update', event => { for (const runtime of JSON.parse(event.data)) renderTile(runtime); });
+      source.addEventListener('removed', event => removeTile(JSON.parse(event.data).id));
+    }
+
+    document.getElementById('loginButton').addEventListener('click', async () => {
+      const status = document.getElementById('loginStatus');
+      try {
+        const response = await fetch('/admin/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bootstrap_token: document.getElementById('token').value }) });
+        if (!response.ok) throw new Error('login failed');
+        csrfToken = response.headers.get('x-csrf-token') ?? '';
+        rememberCsrfToken(csrfToken);
+        status.textContent = 'signed in';
+        signedIn();
+      } catch {
+        status.textContent = 'invalid token';
+      }
+    });
+
+    // A reload has no JS state left - it only has whatever the browser actually persisted: the
+    // HttpOnly session cookie (invisible to this script) and, from sessionStorage, the CSRF token
+    // that pairs with it. Probe with a real authenticated GET rather than assuming either
+    // survived, since either can legitimately be gone (session expired, storage cleared, or a
+    // brand new tab that never inherited sessionStorage).
+    (async function tryResume() {
+      const remembered = recallCsrfToken();
+      const probe = await fetch('/admin/runtimes').catch(() => undefined);
+      if (!probe || !probe.ok) { forgetCsrfToken(); return; }
+      csrfToken = remembered;
+      const { runtimes } = await probe.json();
+      for (const runtime of runtimes) renderTile(runtime);
+      signedIn();
+    })();
+  </script>
+</body>
+</html>

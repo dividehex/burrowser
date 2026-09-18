@@ -1,0 +1,67 @@
+# Repository structure
+
+The original plan (see ADR-0001) sketched a Go-style `cmd/`/`internal/`
+layout. The implementation instead uses a flat `src/` Node/TypeScript tree
+with small, explicitly-injected ports (`KubernetesPort`, `WorkerPort`,
+`ProfileStore`/`DurableProfileStore`) rather than a deep package hierarchy.
+This file replaces that earlier sketch with the actual layout.
+
+```text
+src/                          controller/gateway (Node, run with --experimental-strip-types)
+  server.ts                     HTTP gateway: admin/identity/profile routes, MCP + live-view
+                                 wiring, WebSocket upgrade handling, production entrypoint
+  identity.ts                   invitations, Ed25519 enrollment/challenge/token, revocation
+  admin-auth.ts                 admin session cookies + CSRF
+  profiles.ts                   in-memory profile/lease domain logic (dev-mode store)
+  repository.ts                 PostgresRepository: durable profiles/leases/agents/invitations
+  postgres.ts                   pg.Pool factory (requires DATABASE_URL)
+  migrate.ts / migrate-cli.ts    thin wrapper around postgres-migrations + its CLI entrypoint
+  reconcile.ts                  pure reconciliation functions: create/stop/idle-GC/stuck-GC
+  controller.ts                 ProfileController: polls state, calls reconcile.ts, runs on a timer
+  controller-factory.ts         wires PostgresRepository + KubernetesApiClient + secrets into one
+  kubernetes.ts                 KubernetesApiClient (KubernetesPort impl, @kubernetes/client-node)
+  kube.ts                       fixed worker Pod/Service/PVC/Secret manifest generation
+  worker-secrets.ts             per-profile worker credential Secret provider (get/ensure)
+  worker-client.ts              HttpWorkerClient: authenticated RPC to a profile's worker Pod
+  mcp.ts                        MCP_TOOLS allowlist + dispatchTool (tenant/lease-gated business logic)
+  mcp-http.ts                   MCP Streamable HTTP transport (@modelcontextprotocol/sdk wiring)
+  view-tickets.ts               single-use tickets gating the live-view WebSocket upgrade
+  ws-bridge.ts                  ws-based WebSocket<->TCP bridge to a worker's VNC port
+  static-assets.ts              serves src/view.html and @novnc/novnc's ES modules
+  view.html                     the live-view browser page (noVNC RFB client)
+  url-policy.ts                 SSRF-resistant browser_navigate URL allowlist
+
+worker/                       hardened per-profile Playwright container (separate image)
+  src/main.ts                    authenticated RPC server (navigate/snapshot/click/type/authStatus)
+  src/rpc.ts                     worker-side auth + allowlisted method validation
+  src/persistence.ts              encrypted (AES-256-GCM) virtual-authenticator credential store
+  entrypoint.sh                  starts Xvfb, x11vnc (read-only), then the RPC server
+  Dockerfile                     non-root, read-only-rootfs Playwright image + x11vnc
+
+db/migrations/                 plain numbered .sql files, run via postgres-migrations
+charts/agent-browser/          Helm chart: Deployment, Service, RBAC, NetworkPolicy, StorageClass
+scripts/                       build-and-deploy-local.sh, backup/restore-postgres.sh,
+                                provision-postgres.ts, install-chromium-seccomp.sh
+tests/                         node:test unit + real-listener integration tests, plus tests/k8s/
+                                (disposable smoke-test manifests, not run by `npm test`)
+docs/                          architecture ADRs, threat model, progress log, runbooks
+```
+
+## Notable design choices worth knowing before editing
+
+- **Ports stay small and interface-shaped**, not because of a dependency
+  policy (see ADR-0002) but so a concrete implementation can be swapped
+  without touching the business logic or its tests. `KubernetesApiClient`
+  implements `KubernetesPort` from `reconcile.ts`; swapping its internals
+  to `@kubernetes/client-node` required no changes to `reconcile.ts`,
+  `controller.ts`, or their tests.
+- **Durable vs. in-memory stores share call sites.** `dispatchTool` and the
+  HTTP routes in `server.ts` branch on `'listProfiles' in store` to decide
+  whether they're talking to the in-memory dev store or
+  `PostgresRepository`; there is no separate durable-only code path to keep
+  in sync.
+- **The controller reconciles from durable state on a timer**
+  (`ProfileController.reconcileOnce`, `src/controller.ts`), not from
+  individual API calls — creating a profile row is necessary but not
+  sufficient; the next reconcile tick (default every 5s) is what actually
+  provisions Kubernetes resources.

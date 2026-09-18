@@ -1,0 +1,107 @@
+{{- if and (not .Values.image.digest) (ne .Values.image.pullPolicy "Never") }}{{ fail "image.digest must be set unless image.pullPolicy=Never for local development" }}{{ end -}}
+{{- $controllerImage := ternary (printf "%s@%s" .Values.image.repository .Values.image.digest) .Values.image.repository (ne .Values.image.pullPolicy "Never") -}}
+{{- $workerImage := .Values.workerImage.repository -}}
+{{- if ne .Values.workerImage.pullPolicy "Never" }}{{- $workerImage = printf "%s@%s" .Values.workerImage.repository (required "workerImage.digest must be a sha256 digest" .Values.workerImage.digest) -}}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-browser-controller
+  labels:
+    app.kubernetes.io/name: agent-browser-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-browser-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-browser-controller
+    spec:
+      serviceAccountName: agent-browser-controller
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+      - name: migrate
+        image: {{ $controllerImage | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: [node, --experimental-strip-types, src/migrate-cli.ts]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgres.secretName }}
+              key: DATABASE_URL
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+      {{- end }}
+      containers:
+      - name: controller
+        image: {{ $controllerImage | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: [node, --experimental-strip-types, src/server.ts]
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: AGENT_BROWSER_WORKER_IMAGE
+          value: {{ $workerImage | quote }}
+        - name: AGENT_BROWSER_WORKER_IMAGE_PULL_POLICY
+          value: {{ .Values.workerImage.pullPolicy | quote }}
+        - name: AGENT_BROWSER_TOKEN_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controllerSecretName }}
+              key: AGENT_BROWSER_TOKEN_KEY
+        - name: AGENT_BROWSER_ADMIN_BOOTSTRAP
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.controllerSecretName }}
+              key: AGENT_BROWSER_ADMIN_BOOTSTRAP
+        {{- if .Values.postgres.enabled }}
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgres.secretName }}
+              key: DATABASE_URL
+        {{- end }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 64Mi

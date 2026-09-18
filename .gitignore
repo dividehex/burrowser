@@ -1,0 +1,6 @@
+.agent-browser-postgres.env
+node_modules/
+*.log
+backups/
+.claude/
+

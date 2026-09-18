@@ -1,0 +1,24 @@
+{
+  "name": "agent-browser",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "migrate": "node --experimental-strip-types src/migrate-cli.ts",
+    "provision-postgres": "node --experimental-strip-types scripts/provision-postgres.ts",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts worker/src/*.test.ts"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@novnc/novnc": "^1.7.0",
+    "pg": "8.23.0",
+    "postgres-migrations": "^5.2.0",
+    "rate-limiter-flexible": "^11.2.1",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

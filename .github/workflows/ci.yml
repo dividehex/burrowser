@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: controller
+            context: .
+            dockerfile: Dockerfile
+          - name: worker
+            context: worker
+            dockerfile: worker/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: agent-browser-${{ matrix.name }}:ci
+
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: |
+          helm lint charts/agent-browser \
+            --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            --set workerImage.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - run: |
+          helm template charts/agent-browser \
+            --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            --set workerImage.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            > /dev/null
