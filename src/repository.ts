@@ -154,7 +154,9 @@ export class PostgresRepository {
         'INSERT INTO control_leases (profile_id, owner_client_id, fencing_generation, expires_at) VALUES ($1, $2, $3, $4) ON CONFLICT (profile_id) DO UPDATE SET owner_client_id = EXCLUDED.owner_client_id, fencing_generation = EXCLUDED.fencing_generation, expires_at = EXCLUDED.expires_at RETURNING profile_id, owner_client_id, fencing_generation, expires_at',
         [profileId, clientId, generation, expiresAt],
       )).rows[0];
-      await client.query('UPDATE profiles SET last_used_at = $2 WHERE id = $1', [profileId, now]);
+      // Opening a profile whose browser was reclaimed for idleness brings it back: the controller only
+      // reconciles non-STOPPED profiles, so hand it back as ABSENT and it re-provisions on the next tick.
+      await client.query("UPDATE profiles SET last_used_at = $2, state = CASE WHEN state = 'STOPPED' THEN 'ABSENT' ELSE state END WHERE id = $1", [profileId, now]);
       if (!row) throw new Error('lease acquisition failed');
       return leaseFromRow(row);
     });

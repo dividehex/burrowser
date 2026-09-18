@@ -7,7 +7,7 @@ function durableStore() {
   const leases = new Map<string, any>();
   return {
     async listProfiles(agentId: string) { return profiles.filter(profile => profile.agentId === agentId); },
-    async createProfile(profile: any) { profiles.push(profile); return profile; },
+    async createProfile(profile: any) { profiles.push({ ...profile, state: 'READY' }); return profile; },
     async acquireLease(profileId: string, agentId: string, clientId: string, now: Date) {
       const current = leases.get(profileId);
       const lease = { profileId, ownerClientId: clientId, fencingGeneration: (current?.fencingGeneration ?? 0) + 1, expiresAt: now.getTime() + 30_000 };

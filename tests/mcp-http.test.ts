@@ -77,7 +77,7 @@ test('MCP profile tools use durable profile and lease operations', async () => {
   const leases = new Map<string, any>();
   const durable = {
     async listProfiles(agentId: string) { return profiles.filter(profile => profile.agentId === agentId); },
-    async createProfile(profile: any) { profiles.push(profile); return profile; },
+    async createProfile(profile: any) { profiles.push({ ...profile, state: 'READY' }); return profile; },
     async acquireLease(profileId: string, agentId: string, clientId: string, now: Date) {
       const current = leases.get(profileId);
       if (current && current.expiresAt > now.getTime() && current.ownerClientId !== clientId) throw new Error('profile busy');
@@ -103,7 +103,7 @@ test('MCP worker-touching tools validate the durable lease instead of an in-memo
   const leases = new Map<string, any>();
   const durable = {
     async listProfiles(agentId: string) { return profiles.filter(profile => profile.agentId === agentId); },
-    async createProfile(profile: any) { profiles.push(profile); return profile; },
+    async createProfile(profile: any) { profiles.push({ ...profile, state: 'READY' }); return profile; },
     async acquireLease(profileId: string, agentId: string, clientId: string, now: Date) {
       const current = leases.get(profileId);
       const lease = { profileId, ownerClientId: clientId, fencingGeneration: (current?.fencingGeneration ?? 0) + 1, expiresAt: now.getTime() + 30_000 };

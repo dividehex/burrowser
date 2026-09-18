@@ -25,6 +25,7 @@ export class ProfileController {
     const profiles = await this.options.state.listProfiles();
     const leases = await this.options.state.listLeases();
     const store: ProfileStore = { profiles: new Map(profiles.map(profile => [profile.id, profile])), leases: new Map(leases.map(lease => [lease.profileId, lease])) };
+    const stateAtStart = new Map(profiles.map(profile => [profile.id, profile.state]));
     let reconciled = 0;
     for (const profile of profiles) {
       if (profile.state === 'DELETING') {
@@ -39,8 +40,10 @@ export class ProfileController {
     }
     const idleReclaimed = await reclaimIdleProfiles(store, this.options.kube, now);
     const stuckReclaimed = await reclaimStuckProfiles(store, this.options.kube, this.stuckSince, now, this.options.stuckMs);
+    // Persist only what this pass changed. Re-writing every STOPPED profile each tick could clobber
+    // the ABSENT an agent just set by opening one, silently losing its restart.
     for (const profile of profiles) {
-      if (profile.state === 'STOPPED' || profile.state === 'FAILED') await this.options.state.updateProfileState?.(profile.id, profile.state);
+      if ((profile.state === 'STOPPED' || profile.state === 'FAILED') && profile.state !== stateAtStart.get(profile.id)) await this.options.state.updateProfileState?.(profile.id, profile.state);
     }
     return { reconciled, reclaimed: idleReclaimed + stuckReclaimed };
   }

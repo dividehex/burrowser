@@ -30,6 +30,9 @@ export function postgresMcpStore(repository: Pick<PostgresRepository, 'listProfi
   return repository;
 }
 
+/** States in which a profile's browser can be driven. */
+const USABLE_STATES = new Set(['READY', 'IDLE']);
+
 export async function dispatchTool(store: ProfileStore | DurableProfileStore, agent: Agent, worker: WorkerPort | undefined, name: string, args: any, now = Date.now()) {
   if (!(MCP_TOOLS as readonly string[]).includes(name)) throw new Error('tool not found');
   const durable = 'listProfiles' in store;
@@ -46,15 +49,18 @@ export async function dispatchTool(store: ProfileStore | DurableProfileStore, ag
     ? (await store.listProfiles(agent.id)).find(candidate => candidate.id === args.profile_id)
     : ownedProfile(store, agent.id, args.profile_id);
   if (!profile) throw new Error('profile not found');
-  if (name === 'browser_profile_open') return durable
-    ? store.acquireLease(profile.id, agent.id, args.client_id, new Date(now))
-    : acquireLease(store, profile, args.client_id, now);
+  if (name === 'browser_profile_open') {
+    const lease = durable ? await store.acquireLease(profile.id, agent.id, args.client_id, new Date(now)) : acquireLease(store, profile, args.client_id, now);
+    const profileState = profile.state === 'STOPPED' ? 'ABSENT' : profile.state;   // acquiring restarts a reclaimed profile
+    return USABLE_STATES.has(profileState) ? { ...lease, profileState } : { ...lease, profileState, hint: `the profile is ${profileState}; poll browser_profiles_list until it is READY before using browser tools` };
+  }
   if (name === 'browser_profile_release') {
     if (durable) await store.releaseLease(profile.id, args.client_id, args.fencing_generation, new Date(now));
     else releaseLease(store, profile.id, args.client_id, args.fencing_generation, now);
     return { released: true };
   }
   if (!worker) throw new Error('browser unavailable');
+  if (durable && !USABLE_STATES.has(profile.state)) throw new Error(`the profile is ${profile.state}, not READY yet: poll browser_profiles_list until it is READY (a profile that was stopped restarts when you call browser_profile_open)`);
   if (durable) {
     const lease = await store.getLease(profile.id);
     if (!lease || lease.ownerClientId !== args.client_id || lease.fencingGeneration !== args.fencing_generation || lease.expiresAt <= now) throw new Error(LEASE_EXPIRED_MESSAGE);
