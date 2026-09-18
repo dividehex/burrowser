@@ -6,6 +6,8 @@ import { authorizeWorkerRequest, validateRpcMethod } from './rpc.ts';
 import { persistCredentials, restoreCredentials, type CredentialContext } from './credentials.ts';
 import { beginEnrollment, pollEnrollment, type EnrollmentState } from './enrollment.ts';
 import { createMcpEndpoint } from './mcp-endpoint.ts';
+import { activePage, parseCurrentTab, type CurrentTab } from './active-page.ts';
+import { keepBrowserAlive } from './keep-alive.ts';
 
 const credential = process.env.WORKER_CONTROLLER_CREDENTIAL;
 if (!credential) throw new Error('WORKER_CONTROLLER_CREDENTIAL is required');
@@ -25,7 +27,7 @@ function browserContext(): Promise<BrowserContext> {
     mkdirSync('/profile/authenticator', { recursive: true });
     const context = await chromium.launchPersistentContext('/profile/chromium', { headless: false, chromiumSandbox: true, args: ['--window-size=1280,900'] });
     await restoreCredentials(credentialsOf(context), credentialPath, credentialKey);
-    await context.newPage();
+    keepBrowserAlive(context, () => { contextPromise = undefined; });
     return context;
   })().catch(error => { contextPromise = undefined; throw error; });
   return contextPromise;
@@ -44,7 +46,11 @@ async function persistIfChanged() {
 }
 setInterval(() => { persistIfChanged().catch(() => console.error('credential persistence failed; will retry')); }, 15_000).unref();
 
-const mcpEndpoint = createMcpEndpoint(() => createConnection({ capabilities: mcpCapabilities as any, outputDir: '/tmp/mcp-output', outputMaxSize: 64 * 1024 * 1024 }, browserContext));
+let currentTab: CurrentTab | undefined;
+const mcpEndpoint = createMcpEndpoint(
+  () => createConnection({ capabilities: mcpCapabilities as any, outputDir: '/tmp/mcp-output', outputMaxSize: 64 * 1024 * 1024 }, browserContext),
+  text => { currentTab = parseCurrentTab(text) ?? currentTab; },
+);
 
 async function readBody(req: any) { let value = ''; for await (const chunk of req) value += chunk; if (value.length > 64 * 1024) throw new Error('request too large'); return JSON.parse(value || '{}'); }
 const reply = (res: any, status: number, value: unknown) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); };
@@ -75,9 +81,8 @@ export const server = createServer(async (req, res) => {
       const all = await credentialsApi.get();
       return reply(res, 200, { credentials: all.map(({ id, rpId, userHandle }) => ({ id, rpId, userHandle })) });
     }
-    // thumbnail: the tab most recently opened, which is the one an agent is working in
-    const pages = context.pages().filter(candidate => !candidate.isClosed());
-    const page = pages.at(-1) ?? await context.newPage();
+    // thumbnail: the tab Playwright MCP last reported as current, else the newest
+    const page = activePage(context.pages(), currentTab) ?? await context.newPage();
     const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
     return reply(res, 200, { image: buffer.toString('base64'), contentType: 'image/jpeg' });
   } catch (error) { if (!res.headersSent) reply(res, 400, { error: error instanceof Error ? error.message : 'request failed' }); }

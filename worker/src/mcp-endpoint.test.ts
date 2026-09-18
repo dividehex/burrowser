@@ -35,6 +35,19 @@ test('each MCP client gets its own session on the served server, and its calls r
   } finally { http.close(); }
 });
 
+test('tool result text is reported to the observer without changing what the client receives', async () => {
+  const seen: string[] = [];
+  const { http, url } = await listening(createMcpEndpoint(async () => echoServer(), text => seen.push(text)));
+  try {
+    const client = new Client({ name: 'a', version: '1' });
+    await client.connect(new StreamableHTTPClientTransport(url));
+    const result: any = await client.callTool({ name: 'browser_navigate', arguments: { url: 'https://example.com/' } });
+    assert.equal(result.content[0].text, 'at https://example.com/');
+    assert.deepEqual(seen, ['at https://example.com/']);
+    await client.close();
+  } finally { http.close(); }
+});
+
 test('an unknown session id is a 404 and a sessionless non-POST is a 400', async () => {
   const { http, url } = await listening(createMcpEndpoint(async () => echoServer()));
   try {

@@ -15,7 +15,7 @@ const badRequest = (res: any) => { res.writeHead(400, { 'content-type': 'applica
  * Burrowser: Playwright MCP bound to the profile's one persistent browser context), so this is a thin
  * session table and nothing more: the tools, their schemas and their results are Playwright's own.
  */
-export function createMcpEndpoint(createServer: () => Promise<Server>) {
+export function createMcpEndpoint(createServer: () => Promise<Server>, onToolText?: (text: string) => void) {
   const sessions = new Map<string, Session>();
 
   return async function handleMcp(req: any, res: any): Promise<void> {
@@ -37,6 +37,13 @@ export function createMcpEndpoint(createServer: () => Promise<Server>) {
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: id => { sessions.set(id, { transport, server }); },
     });
+    if (onToolText) {
+      const send = transport.send.bind(transport);
+      transport.send = (message, options) => {
+        for (const part of (message as any).result?.content ?? []) if (part?.type === 'text' && typeof part.text === 'string') onToolText(part.text);
+        return send(message, options);
+      };
+    }
     transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
     await server.connect(transport);
     await transport.handleRequest(req, res);
