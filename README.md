@@ -7,19 +7,12 @@ passkeys — over MCP.
 [![CI](https://github.com/dividehex/agent-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/dividehex/agent-browser/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-```
-$ curl -s -X POST https://gateway.internal/v1/profiles \
-    -H "Authorization: Bearer $AGENT_TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d '{"name":"research"}'
-
-{"id":"…","name":"research","state":"ABSENT","pvcName":"ab-…"}
-```
-*(illustrative — real IDs are UUIDs) An authenticated agent creating a
-named, persistent browser profile via the REST API (the same operation is
-also exposed as the `browser_profiles_create` MCP tool). The controller
-then provisions a dedicated Pod/PVC/Service for it in Kubernetes and
-reconciles it through to `READY`.*
+![The Agent Browser admin dashboard after signing in, showing the live-runtimes tile grid](docs/assets/admin-dashboard.png)
+*The admin dashboard (`GET /admin`) right after signing in — a real,
+authenticated screenshot from a running instance. This one has no active
+profiles at the moment; each profile that's `STARTING`/`READY`/`IDLE`
+appears here as a live tile with a thumbnail preview and a click-through
+noVNC view, and disappears once stopped.*
 
 **[Quick start](#quick-start) · [Architecture](docs/repository-structure.md) · [Threat model](docs/threat-model.md) · [Milestone status](docs/implementation-plan.md)**
 
@@ -67,6 +60,23 @@ gated by server-verified identity.
 
 See `docs/implementation-plan.md` for what's built and live-verified versus
 what's still open.
+
+## Usage
+
+```
+$ curl -s -X POST https://gateway.internal/v1/profiles \
+    -H "Authorization: Bearer $AGENT_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"research"}'
+
+{"id":"…","name":"research","state":"ABSENT","pvcName":"ab-…"}
+```
+*(illustrative — real IDs are UUIDs) An authenticated agent creating a
+named, persistent browser profile via the REST API (the same operation is
+also exposed as the `browser_profiles_create` MCP tool). The controller
+then provisions a dedicated Pod/PVC/Service for it in Kubernetes and
+reconciles it through to `READY` — that's the profile that would show up
+as a tile in the screenshot above.*
 
 ## Quick start
 
@@ -130,6 +140,15 @@ automation is included — passkeys are the only supported credential type.
 - [`docs/repository-structure.md`](docs/repository-structure.md) — code layout and design choices
 - [`docs/architecture/`](docs/architecture) — ADRs
 - [`docs/runbooks/postgres-backup-restore.md`](docs/runbooks/postgres-backup-restore.md) — operating the database
+
+## Contributing
+
+Issues and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for local setup, how this project likes
+changes proposed, and what CI checks. Please report security
+vulnerabilities privately per [SECURITY.md](SECURITY.md) rather than as a
+public issue. Participation is covered by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
