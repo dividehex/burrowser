@@ -4,6 +4,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 import { authorizeWorkerRequest, validateRpcMethod } from './rpc.ts';
 import { persistCredentials, restoreCredentials, type CredentialContext } from './credentials.ts';
 import { beginEnrollment, pollEnrollment, type EnrollmentState } from './enrollment.ts';
+import { collectPage, PAGE_LIMITS, summarizePage } from './page-summary.ts';
 
 const credential = process.env.WORKER_CONTROLLER_CREDENTIAL;
 if (!credential) throw new Error('WORKER_CONTROLLER_CREDENTIAL is required');
@@ -33,8 +34,17 @@ export const server = createServer(async (req, res) => {
     const input = await readBody(req); const method = validateRpcMethod(input.method); const activePage = await browserPage();
     const credentialsApi = (context as unknown as CredentialContext).credentials!;
     if ((method === 'type' || method === 'snapshot') && enrollment && Date.now() < enrollment.expiresAt) return reply(res, 409, { error: 'text entry and snapshots are restricted during passkey enrollment' });
-    if (method === 'navigate') { const url = await activePage.goto(input.url, { waitUntil: 'domcontentloaded' }).then(() => activePage.url()); await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey); return reply(res, 200, { url }); }
-    if (method === 'snapshot') { const text = await activePage.locator('body').innerText({ timeout: 5000 }); await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey); return reply(res, 200, { text }); }
+    if (method === 'navigate') {
+      const response = await activePage.goto(input.url, { waitUntil: 'domcontentloaded' });
+      await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey);
+      return reply(res, 200, { url: activePage.url(), status: response?.status() ?? null, title: await activePage.title() });
+    }
+    if (method === 'snapshot') {
+      await activePage.waitForLoadState('domcontentloaded', { timeout: 5000 });
+      const summary = summarizePage(activePage.url(), await activePage.evaluate(collectPage, PAGE_LIMITS));
+      await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey);
+      return reply(res, 200, summary);
+    }
     if (method === 'click') { const result = await activePage.locator(String(input.selector)).click(); await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey); return reply(res, 200, { ok: true, result }); }
     if (method === 'type') { const result = await activePage.locator(String(input.selector)).fill(String(input.text).slice(0, 10_000)); await persistCredentials(context as unknown as CredentialContext, credentialPath, credentialKey); return reply(res, 200, { ok: true, result }); }
     if (method === 'passkeyEnrollBegin') {
