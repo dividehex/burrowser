@@ -52,7 +52,13 @@ setInterval(() => { persistIfChanged().catch(() => console.error('credential per
 let currentTab: CurrentTab | undefined;
 const mcpEndpoint = createMcpEndpoint(
   () => createConnection({ capabilities: mcpCapabilities as any, outputDir: '/tmp/mcp-output', outputMaxSize: 64 * 1024 * 1024 }, browserContext),
-  text => { currentTab = parseCurrentTab(text) ?? currentTab; },
+  // Playwright MCP drives its current tab without focusing it, so bring that tab forward for the live (noVNC) view.
+  text => {
+    const tab = parseCurrentTab(text);
+    if (!tab) return;
+    currentTab = tab;
+    contextPromise?.then(context => activePage(context.pages(), tab)?.bringToFront()).catch(() => {});
+  },
   // Chromium exits with its last tab, and Playwright MCP recreating one afterwards races the browser's own
   // shutdown. So when a call is about to close the only tab, open its replacement first. (browser_close is not a
   // tab close: it ends the MCP session, which the endpoint handles.)
