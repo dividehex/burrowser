@@ -28,7 +28,7 @@ function browserContext(): Promise<BrowserContext> {
     mkdirSync('/profile/authenticator', { recursive: true });
     // Playwright's own signal handlers would start a second close alongside shutdown()'s, and a second
     // close SIGKILLs Chromium, leaving the profile marked as crashed. shutdown() is the only closer.
-    const context = await chromium.launchPersistentContext('/profile/chromium', { headless: false, chromiumSandbox: true, args: ['--window-size=1280,900'], handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+    const context = await chromium.launchPersistentContext('/profile/chromium', { headless: false, chromiumSandbox: true, args: ['--window-size=1280,900', '--hide-crash-restore-bubble'], handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
     await restoreCredentials(credentialsOf(context), credentialPath, credentialKey);
     keepBrowserAlive(context, () => { contextPromise = undefined; }, { closing: () => shuttingDown });
     return context;
