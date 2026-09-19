@@ -54,9 +54,10 @@ const mcpEndpoint = createMcpEndpoint(
   () => createConnection({ capabilities: mcpCapabilities as any, outputDir: '/tmp/mcp-output', outputMaxSize: 64 * 1024 * 1024 }, browserContext),
   text => { currentTab = parseCurrentTab(text) ?? currentTab; },
   // Chromium exits with its last tab, and Playwright MCP recreating one afterwards races the browser's own
-  // shutdown. So when a call is about to close the only tab, open its replacement first.
+  // shutdown. So when a call is about to close the only tab, open its replacement first. (browser_close is not a
+  // tab close: it ends the MCP session, which the endpoint handles.)
   async (name, args) => {
-    const closes = name === 'browser_close' || (name === 'browser_tabs' && (args as { action?: unknown } | undefined)?.action === 'close');
+    const closes = name === 'browser_tabs' && (args as { action?: unknown } | undefined)?.action === 'close';
     if (!closes || !contextPromise) return;
     const context = await contextPromise;
     if (context.pages().filter(page => !page.isClosed()).length <= 1) await context.newPage();
@@ -115,4 +116,10 @@ async function shutdown() {
 }
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, shutdown);
 
-if (import.meta.url === `file://${process.argv[1]}`) server.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // The root filesystem is read-only and Playwright MCP resolves a tool's relative `filename` against the working
+  // directory, so run from the writable output directory instead of /app (else "EROFS: read-only file system").
+  mkdirSync('/tmp/mcp-output', { recursive: true });
+  process.chdir('/tmp/mcp-output');
+  server.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');
+}

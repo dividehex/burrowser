@@ -42,26 +42,29 @@ export function createMcpEndpoint(
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: id => { sessions.set(id, { transport, server }); },
     });
-    if (onToolText) {
-      const send = transport.send.bind(transport);
-      transport.send = (message, options) => {
-        for (const part of (message as any).result?.content ?? []) if (part?.type === 'text' && typeof part.text === 'string') onToolText(part.text);
-        return send(message, options);
-      };
-    }
+    // browser_close makes Playwright MCP dispose this session's state, which in a shared browser leaves the session
+    // unusable (every later call fails). So once its reply is sent, end the session: the client's next call gets a
+    // 404 and opens a fresh one (the gateway does this on its own), on the same browser.
+    const closingCalls = new Set<unknown>();
+    const send = transport.send.bind(transport);
+    transport.send = (message, options) => {
+      for (const part of (message as any).result?.content ?? []) if (part?.type === 'text' && typeof part.text === 'string') onToolText?.(part.text);
+      const sent = send(message, options);
+      if (closingCalls.delete((message as any).id)) void sent.then(() => transport.close()).catch(() => {});
+      return sent;
+    };
     transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
     await server.connect(transport);
-    if (beforeToolCall) {
-      const deliver = transport.onmessage!.bind(transport);
-      let queue: Promise<unknown> = Promise.resolve();
-      transport.onmessage = (message, extra) => {
-        const call = (message as any).method === 'tools/call' ? (message as any).params : undefined;
-        queue = queue
-          .then(() => call ? beforeToolCall(String(call.name), call.arguments).catch(() => {}) : undefined)
-          .then(() => deliver(message, extra))
-          .catch(() => {});
-      };
-    }
+    const deliver = transport.onmessage!.bind(transport);
+    let queue: Promise<unknown> = Promise.resolve();
+    transport.onmessage = (message, extra) => {
+      const call = (message as any).method === 'tools/call' ? (message as any).params : undefined;
+      if (call?.name === 'browser_close') closingCalls.add((message as any).id);
+      queue = queue
+        .then(() => call && beforeToolCall ? beforeToolCall(String(call.name), call.arguments).catch(() => {}) : undefined)
+        .then(() => deliver(message, extra))
+        .catch(() => {});
+    };
     await transport.handleRequest(req, res);
   };
 }

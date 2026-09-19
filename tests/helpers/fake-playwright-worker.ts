@@ -12,6 +12,7 @@ export const FAKE_TOOLS = [
   { name: 'browser_snapshot', description: 'Capture accessibility snapshot of the current page', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'browser_take_screenshot', description: 'Take a screenshot', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'browser_evaluate', description: 'Evaluate JavaScript', inputSchema: { type: 'object', properties: { function: { type: 'string' } }, required: ['function'] } },
+  { name: 'browser_close', description: 'Close the page', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'browser_boom', description: 'Always fails', inputSchema: { type: 'object', properties: {} } },
 ];
 export const SNAPSHOT_TEXT = '### Snapshot\n```yaml\n- link "Learn more" [ref=e6]\n```';
@@ -26,6 +27,7 @@ export async function startFakePlaywrightWorker(port = 0) {
     server.setRequestHandler(CallToolRequestSchema, async request => {
       const { name, arguments: args } = request.params;
       calls.push({ name, args });
+      if (name === 'browser_close') return { content: [{ type: 'text', text: 'No open tabs. Navigate to a URL to create one.' }] };
       if (name === 'browser_navigate') return { content: [{ type: 'text', text: `### Page\n- Page URL: ${(args as any).url}` }] };
       if (name === 'browser_snapshot') return { content: [{ type: 'text', text: SNAPSHOT_TEXT }] };
       if (name === 'browser_take_screenshot') return { content: [{ type: 'text', text: 'shot' }, SCREENSHOT] };

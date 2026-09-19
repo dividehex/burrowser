@@ -51,4 +51,36 @@ for (let round = 1; round <= Number(roundsArg); round++) {
   if (problems.length) failures++;
   console.log(`  round ${round}: ${closed.before} tabs closed -> ${problems.length ? `FAIL (${problems.join('; ')})` : 'one blank tab, no errors'}`);
 }
+
+// browser_close ends the MCP session (Playwright MCP disposes its state, which would wedge a shared browser), so the
+// next call from the client must be able to start over: a fresh session lists tabs, opens one, and navigates.
+{
+  const sameSession = await session(async client => {
+    await call(client, 'browser_tabs', { action: 'list' });
+    await call(client, 'browser_navigate', { url: 'about:blank' });
+    await call(client, 'browser_close');
+    return call(client, 'browser_tabs', { action: 'list' });   // the same session: it must be gone (404), not left broken
+  });
+  const wedged = sameSession.error !== undefined && !sameSession.error.startsWith('threw:');
+  const after = await session(async client => {
+    const listed = await call(client, 'browser_tabs', { action: 'list' });
+    const opened = await call(client, 'browser_tabs', { action: 'new' });
+    const navigated = await call(client, 'browser_navigate', { url: 'about:blank' });
+    return { error: listed.error ?? opened.error ?? navigated.error, tabs: tabs(listed.text).length };
+  });
+  const problems = [wedged && `the session was left broken after browser_close: ${sameSession.error}`, after.error && `a fresh session after browser_close failed: ${after.error}`, after.tabs < 1 && 'no tab after browser_close'].filter(Boolean);
+  if (problems.length) failures++;
+  console.log(`  browser_close: ${problems.length ? `FAIL (${problems.join('; ')})` : `session ended cleanly, fresh session works, ${after.tabs} tab(s)`}`);
+}
+
+// The worker's root filesystem is read-only: a relative `filename` from the agent must not fail with EROFS.
+{
+  const saved = await session(async client => {
+    await call(client, 'browser_tabs', { action: 'list' });
+    await call(client, 'browser_navigate', { url: 'about:blank' });
+    return call(client, 'browser_snapshot', { filename: 'e2e-snapshot.yml' });
+  });
+  if (saved.error) failures++;
+  console.log(`  snapshot with a filename: ${saved.error ? `FAIL (${saved.error})` : 'saved without error'}`);
+}
 process.exit(failures ? 1 : 0);

@@ -68,6 +68,27 @@ test('a call waits for the before-call hook, which sees its name and arguments, 
   } finally { http.close(); }
 });
 
+test('browser_close ends that MCP session (its next call is a 404) while other and new sessions carry on', async () => {
+  const closing = new Server({ name: 'fake-playwright', version: '1' }, { capabilities: { tools: {} } });
+  closing.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [{ name: 'browser_close', description: 'close', inputSchema: { type: 'object' } }, { name: 'browser_navigate', description: 'go', inputSchema: { type: 'object', properties: { url: { type: 'string' } } } }] }));
+  closing.setRequestHandler(CallToolRequestSchema, async request => ({ content: [{ type: 'text', text: request.params.name === 'browser_close' ? 'No open tabs.' : `at ${(request.params.arguments as any).url}` }] }));
+  let created = 0;
+  const { http, url } = await listening(createMcpEndpoint(async () => { created++; return created === 1 ? closing : echoServer(); }));
+  try {
+    const first = new Client({ name: 'a', version: '1' });
+    await first.connect(new StreamableHTTPClientTransport(url));
+    const closed: any = await first.callTool({ name: 'browser_close', arguments: {} });
+    assert.equal(closed.content[0].text, 'No open tabs.', 'the close itself is answered normally');
+    await assert.rejects(() => first.callTool({ name: 'browser_navigate', arguments: { url: 'x' } }), /404|not found/i, 'the closed session is gone');
+
+    const second = new Client({ name: 'b', version: '1' });
+    await second.connect(new StreamableHTTPClientTransport(url));
+    const result: any = await second.callTool({ name: 'browser_navigate', arguments: { url: 'https://example.com/' } });
+    assert.equal(result.content[0].text, 'at https://example.com/', 'a fresh session works');
+    await second.close();
+  } finally { http.close(); }
+});
+
 test('an unknown session id is a 404 and a sessionless non-POST is a 400', async () => {
   const { http, url } = await listening(createMcpEndpoint(async () => echoServer()));
   try {

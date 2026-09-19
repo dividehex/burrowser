@@ -259,3 +259,16 @@ test('a worker that is stopped and started again mid-session is waited for, up t
     } finally { await client.close(); await close(); await worker.close(); }
   }
 });
+
+test('after browser_close the agent carries on in the same session: the worker ends its session and the gateway opens a new one', async () => {
+  const t = await setup();
+  try {
+    const { client } = await t.connect(await enrollAgent(t.call, 'a'));
+    const closed: any = await client.callTool({ name: 'browser_close', arguments: {} });
+    assert.match(closed.content[0].text, /No open tabs/);
+    const after: any = await client.callTool({ name: 'browser_navigate', arguments: { url: 'https://after-close.example' } });
+    assert.notEqual(after.isError, true);
+    assert.match(after.content[0].text, /after-close\.example/);
+    await client.close();
+  } finally { await t.teardown(); }
+});

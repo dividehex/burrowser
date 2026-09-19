@@ -41,6 +41,12 @@ Burrowser decides only:
   which closes Chromium normally). Any later call restarts the profile, and cancels a
   shutdown that has not happened yet.
 
+Two worker-side accommodations keep stock behaviour usable on a shared, persistent browser without changing
+any tool's name, schema or result: `browser_close` (which in Playwright MCP disposes the session's state, and would
+leave a shared browser's session unusable) ends that worker MCP session once it has answered, so the gateway opens a
+fresh one on the next call; and the worker runs from its writable output directory so an agent's relative `filename`
+does not hit the read-only root filesystem.
+
 `burrowser mcp --profile NAME` is the client side: it binds a profile (created on first use),
 authenticates, and exposes exactly the proxied tool set over stdio.
 

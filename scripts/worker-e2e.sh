@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks a worker image with a real Chromium in a local container, for what unit tests cannot show:
 #   1. the first thumbnail, requested as the browser launches, succeeds
-#   2. closing every tab leaves one usable blank tab, with no errors (repeated)
+#   2. closing every tab leaves one usable blank tab, with no errors (repeated), and browser_close leaves the
+#      browser usable to a fresh session
 #   3. SIGTERM (what a Pod delete sends) on a live browser closes Chromium normally:
 #      exit_type Normal, exited_cleanly, no stale Singleton locks
 # Each check gets its own fresh container and profile. Usage: scripts/worker-e2e.sh [IMAGE]
@@ -27,7 +28,9 @@ boot() {
   teardown
   docker volume create "$VOLUME" >/dev/null
   docker run --rm --user 0 --entrypoint chown -v "$VOLUME":/profile "$IMAGE" 10001:10001 /profile
+  # --read-only and the tmpfs mounts mirror the worker Pod (read-only root, writable /tmp, /home/browser and /dev/shm)
   docker run -d --name "$NAME" --user 10001:10001 -v "$VOLUME":/profile --shm-size=256m \
+    --read-only --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /home/browser:rw,size=256m,uid=10001,gid=10001 \
     --security-opt seccomp=unconfined --security-opt no-new-privileges --cap-drop ALL \
     -e WORKER_CONTROLLER_CREDENTIAL="$CREDENTIAL" -e BURROWSER_VNC_PASSWORD="$CREDENTIAL" \
     -e BURROWSER_AUTHENTICATOR_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')" \
