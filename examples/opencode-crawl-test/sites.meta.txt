@@ -1,0 +1,4 @@
+source: Tranco list JZNVY created 2026-09-18 (top-1m.csv)
+generated: 2026-09-19T16:45:20Z
+sites: 1000 (990 ranked + 10 canaries at lines 50,150,...,950)
+denylist: adult keyword denylist in scripts/generate-sites.sh; probe: HTTPS answering HTML (2xx/3xx, or 401/403/429 bot wall)

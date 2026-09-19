@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "burrowser": {
+      "type": "local",
+      "command": ["{env:BURROWSER_CLI}", "mcp", "--identity", "crawler"],
+      "environment": { "BURROWSER_URL": "{env:BURROWSER_URL}" },
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}

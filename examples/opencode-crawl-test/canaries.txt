@@ -1,0 +1,10 @@
+https://expired.badssl.com/
+https://self-signed.badssl.com/
+https://wrong.host.badssl.com/
+https://nonexistent-host.burrowser-test.invalid/
+https://example.com/definitely-missing-page-404
+https://httpbin.org/status/503
+https://httpbin.org/delay/20
+https://httpbin.org/redirect/15
+https://the-internet.herokuapp.com/javascript_alerts
+https://the-internet.herokuapp.com/download

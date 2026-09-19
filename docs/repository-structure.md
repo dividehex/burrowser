@@ -59,6 +59,7 @@ scripts/                       build-and-deploy-local.sh, backup/restore-postgre
 tests/                         node:test unit + real-listener integration tests (tests/helpers/ has a fake Playwright
                                 worker), plus tests/k8s/
                                 (disposable smoke-test manifests, not run by `npm test`)
+examples/opencode-crawl-test/  an OpenCode skill + subagent that crawls 1000 sites through a Burrowser profile (a long-running e2e test)
 docs/                          architecture ADRs and the original spec, threat model, runbooks
 ```
 
