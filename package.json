@@ -11,6 +11,7 @@
     "migrate": "node --experimental-strip-types src/migrate-cli.ts",
     "provision-postgres": "node --experimental-strip-types scripts/provision-postgres.ts",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts worker/src/*.test.ts",
+    "test:worker-e2e": "./scripts/worker-e2e.sh",
     "cli": "node --experimental-strip-types src/cli/main.ts"
   },
   "dependencies": {

@@ -163,6 +163,11 @@ That starts the gateway in-memory only (no `DATABASE_URL` /
 `KUBERNETES_SERVICE_HOST` set) — useful for iterating against the HTTP/MCP
 surface without a cluster. `GET /health` should return `200`.
 
+`npm test` covers everything that doesn't need a browser. For what only a real
+Chromium can show (closing every tab, and Chromium closing normally on SIGTERM
+so the profile is not left marked as crashed), build the worker image and run
+`npm run test:worker-e2e`; it starts throwaway containers and needs Docker.
+
 ### Real deployment
 
 This assumes you already have a Kubernetes (or K3s) cluster and a

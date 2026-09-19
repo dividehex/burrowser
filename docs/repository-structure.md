@@ -54,7 +54,8 @@ worker/                       hardened per-profile Playwright container (separat
 db/migrations/                 plain numbered .sql files, run via postgres-migrations
 charts/burrowser/          Helm chart: Deployment, Service, RBAC, NetworkPolicy, StorageClass
 scripts/                       build-and-deploy-local.sh, backup/restore-postgres.sh,
-                                provision-postgres.ts, install-chromium-seccomp.sh
+                                provision-postgres.ts, install-chromium-seccomp.sh,
+                                worker-e2e.sh (+ worker-e2e-tabs.ts): real-Chromium checks of a worker image
 tests/                         node:test unit + real-listener integration tests (tests/helpers/ has a fake Playwright
                                 worker), plus tests/k8s/
                                 (disposable smoke-test manifests, not run by `npm test`)
