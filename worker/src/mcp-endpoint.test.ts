@@ -48,6 +48,26 @@ test('tool result text is reported to the observer without changing what the cli
   } finally { http.close(); }
 });
 
+test('a call waits for the before-call hook, which sees its name and arguments, and calls still arrive in order', async () => {
+  const events: string[] = [];
+  const { http, url } = await listening(createMcpEndpoint(
+    async () => echoServer(),
+    undefined,
+    async (name, args) => { events.push(`hook:${name}:${(args as any).url}`); await new Promise(resolve => setTimeout(resolve, 30)); events.push(`hooked:${(args as any).url}`); },
+  ));
+  try {
+    const client = new Client({ name: 'a', version: '1' });
+    await client.connect(new StreamableHTTPClientTransport(url));
+    const [first, second]: any[] = await Promise.all([
+      client.callTool({ name: 'browser_navigate', arguments: { url: 'one' } }),
+      client.callTool({ name: 'browser_navigate', arguments: { url: 'two' } }),
+    ]);
+    assert.equal(first.content[0].text, 'at one'); assert.equal(second.content[0].text, 'at two');
+    assert.deepEqual(events, ['hook:browser_navigate:one', 'hooked:one', 'hook:browser_navigate:two', 'hooked:two']);
+    await client.close();
+  } finally { http.close(); }
+});
+
 test('an unknown session id is a 404 and a sessionless non-POST is a 400', async () => {
   const { http, url } = await listening(createMcpEndpoint(async () => echoServer()));
   try {

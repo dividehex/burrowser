@@ -15,7 +15,12 @@ const badRequest = (res: any) => { res.writeHead(400, { 'content-type': 'applica
  * Burrowser: Playwright MCP bound to the profile's one persistent browser context), so this is a thin
  * session table and nothing more: the tools, their schemas and their results are Playwright's own.
  */
-export function createMcpEndpoint(createServer: () => Promise<Server>, onToolText?: (text: string) => void) {
+export function createMcpEndpoint(
+  createServer: () => Promise<Server>,
+  onToolText?: (text: string) => void,
+  /** Runs, and is waited for, before a tools/call reaches the server. Messages still reach it in order. */
+  beforeToolCall?: (name: string, args: unknown) => Promise<void>,
+) {
   const sessions = new Map<string, Session>();
 
   return async function handleMcp(req: any, res: any): Promise<void> {
@@ -46,6 +51,17 @@ export function createMcpEndpoint(createServer: () => Promise<Server>, onToolTex
     }
     transport.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
     await server.connect(transport);
+    if (beforeToolCall) {
+      const deliver = transport.onmessage!.bind(transport);
+      let queue: Promise<unknown> = Promise.resolve();
+      transport.onmessage = (message, extra) => {
+        const call = (message as any).method === 'tools/call' ? (message as any).params : undefined;
+        queue = queue
+          .then(() => call ? beforeToolCall(String(call.name), call.arguments).catch(() => {}) : undefined)
+          .then(() => deliver(message, extra))
+          .catch(() => {});
+      };
+    }
     await transport.handleRequest(req, res);
   };
 }

@@ -8,6 +8,7 @@ import { beginEnrollment, pollEnrollment, type EnrollmentState } from './enrollm
 import { createMcpEndpoint } from './mcp-endpoint.ts';
 import { activePage, parseCurrentTab, type CurrentTab } from './active-page.ts';
 import { keepBrowserAlive } from './keep-alive.ts';
+import { withRetries } from './retry.ts';
 
 const credential = process.env.WORKER_CONTROLLER_CREDENTIAL;
 if (!credential) throw new Error('WORKER_CONTROLLER_CREDENTIAL is required');
@@ -52,6 +53,14 @@ let currentTab: CurrentTab | undefined;
 const mcpEndpoint = createMcpEndpoint(
   () => createConnection({ capabilities: mcpCapabilities as any, outputDir: '/tmp/mcp-output', outputMaxSize: 64 * 1024 * 1024 }, browserContext),
   text => { currentTab = parseCurrentTab(text) ?? currentTab; },
+  // Chromium exits with its last tab, and Playwright MCP recreating one afterwards races the browser's own
+  // shutdown. So when a call is about to close the only tab, open its replacement first.
+  async (name, args) => {
+    const closes = name === 'browser_close' || (name === 'browser_tabs' && (args as { action?: unknown } | undefined)?.action === 'close');
+    if (!closes || !contextPromise) return;
+    const context = await contextPromise;
+    if (context.pages().filter(page => !page.isClosed()).length <= 1) await context.newPage();
+  },
 );
 
 async function readBody(req: any) { let value = ''; for await (const chunk of req) value += chunk; if (value.length > 64 * 1024) throw new Error('request too large'); return JSON.parse(value || '{}'); }
@@ -84,8 +93,8 @@ export const server = createServer(async (req, res) => {
       return reply(res, 200, { credentials: all.map(({ id, rpId, userHandle }) => ({ id, rpId, userHandle })) });
     }
     // thumbnail: the tab Playwright MCP last reported as current, else the newest
-    const page = activePage(context.pages(), currentTab) ?? await context.newPage();
-    const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+    // The request that launches the browser can reach it before its first page can be captured; that clears within a second.
+    const buffer = await withRetries(async () => (activePage(context.pages(), currentTab) ?? await context.newPage()).screenshot({ type: 'jpeg', quality: 60 }));
     return reply(res, 200, { image: buffer.toString('base64'), contentType: 'image/jpeg' });
   } catch (error) { if (!res.headersSent) reply(res, 400, { error: error instanceof Error ? error.message : 'request failed' }); }
 });
