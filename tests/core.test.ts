@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { issueInvitation, redeemInvitation, verifyAccessToken, issueAccessToken, revokeAgent, issueChallengeFor, peekChallenge, type ChallengeStore } from '../src/identity.ts';
 import { acquireLease, createProfile } from '../src/profiles.ts';
-import { workerResources, workerSecretResource } from '../src/kube.ts';
+import { workerResources, workerSecretResource, WORKER_TERMINATION_GRACE_SECONDS } from '../src/kube.ts';
 import { reconcileProfile, reclaimIdleProfiles, reclaimStuckProfiles, stopProfile } from '../src/reconcile.ts';
 
 const keys = () => generateKeyPairSync('ed25519');
@@ -64,4 +64,10 @@ test('stuck reclamation only fires after the grace period, tracks per profile, a
   assert.equal(await reclaimStuckProfiles(store, kube, stuckSince, 350_000, 300_000), 1, 'only the profile whose grace period actually elapsed is reclaimed');
   assert.equal(stuck.state, 'FAILED'); assert.equal(objects.has('pvc/bw-s'), true); assert.equal(objects.has('pod/bw-s'), false);
   assert.equal(stuckSince.has('s'), false, 'cleared once reclaimed'); assert.equal(fresh.state, 'STARTING'); assert.equal(ready.state, 'READY');
+});
+
+test('a worker Pod gets enough time on shutdown to close Chromium cleanly before it is killed', () => {
+  const r = workerResources({ id: 'abc', pvcName: 'bw-abc' } as any, `ghcr.io/x/worker@sha256:${'a'.repeat(64)}`);
+  assert.equal(r.pod.spec.terminationGracePeriodSeconds, WORKER_TERMINATION_GRACE_SECONDS);
+  assert.ok(WORKER_TERMINATION_GRACE_SECONDS > 30, 'longer than the Kubernetes default');
 });
