@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { issueInvitation, redeemInvitation, verifyAccessToken, issueAccessToken, revokeAgent, issueChallengeFor, peekChallenge, type ChallengeStore } from '../src/identity.ts';
 import { acquireLease, createProfile } from '../src/profiles.ts';
-import { workerResources, workerSecretResource, WORKER_TERMINATION_GRACE_SECONDS } from '../src/kube.ts';
+import { workerResources, workerSecretResource, workerMemoryLimit, DEFAULT_WORKER_MEMORY_LIMIT, WORKER_TERMINATION_GRACE_SECONDS } from '../src/kube.ts';
 import { reconcileProfile, reclaimIdleProfiles, reclaimStuckProfiles, stopProfile } from '../src/reconcile.ts';
 
 const keys = () => generateKeyPairSync('ed25519');
@@ -70,4 +70,15 @@ test('a worker Pod gets enough time on shutdown to close Chromium cleanly before
   const r = workerResources({ id: 'abc', pvcName: 'bw-abc' } as any, `ghcr.io/x/worker@sha256:${'a'.repeat(64)}`);
   assert.equal(r.pod.spec.terminationGracePeriodSeconds, WORKER_TERMINATION_GRACE_SECONDS);
   assert.ok(WORKER_TERMINATION_GRACE_SECONDS > 30, 'longer than the Kubernetes default');
+});
+
+test('a worker Pod gets a 3Gi memory limit by default, configurable, and never below its request', () => {
+  assert.equal(DEFAULT_WORKER_MEMORY_LIMIT, '3Gi');
+  assert.equal(workerMemoryLimit({}), '3Gi');
+  assert.equal(workerMemoryLimit({ BURROWSER_WORKER_MEMORY_LIMIT: '4Gi' }), '4Gi');
+  assert.equal(workerMemoryLimit({ BURROWSER_WORKER_MEMORY_LIMIT: '768Mi' }), '768Mi');
+  for (const bad of ['3', '3G', '0Gi', '-1Gi', '1.5Gi', 'lots', '256Mi']) assert.throws(() => workerMemoryLimit({ BURROWSER_WORKER_MEMORY_LIMIT: bad }), /BURROWSER_WORKER_MEMORY_LIMIT/, bad);
+  const r = workerResources({ id: 'abc', pvcName: 'bw-abc' } as any, `ghcr.io/x/worker@sha256:${'a'.repeat(64)}`);
+  assert.equal(r.pod.spec.containers[0].resources.limits.memory, '3Gi');
+  assert.equal(r.pod.spec.containers[0].resources.requests.memory, '512Mi');
 });

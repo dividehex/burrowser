@@ -59,6 +59,8 @@ spec:
           value: {{ $workerImage | quote }}
         - name: BURROWSER_WORKER_IMAGE_PULL_POLICY
           value: {{ .Values.workerImage.pullPolicy | quote }}
+        - name: BURROWSER_WORKER_MEMORY_LIMIT
+          value: {{ .Values.worker.memoryLimit | quote }}
         - name: BURROWSER_MCP_CAPS
           value: {{ .Values.mcp.capabilities | quote }}
         {{- if .Values.mcp.excludeTools }}

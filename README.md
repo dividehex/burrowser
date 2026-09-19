@@ -119,7 +119,8 @@ the rest — with nothing about profiles or leases to manage, plus
 supervised passkey ceremony, and `browser_shutdown` to end the browser when
 the agent is finished. To switch tools off, set `mcp.excludeTools`
 (comma-separated names) in the chart; `mcp.capabilities` chooses which of
-Playwright MCP's tool groups exist (`core` by default).
+Playwright MCP's tool groups exist (`core` by default). Each worker Pod gets a 3Gi memory limit
+(`worker.memoryLimit`; real sites exceed 1Gi and get Chromium OOM-killed).
 
 **Administer.** IDs may be any unique prefix of four or more characters, and
 `list` commands take `--json` for scripting:

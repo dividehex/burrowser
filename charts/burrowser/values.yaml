@@ -22,6 +22,10 @@ service:
   type: ClusterIP
   port: 8080
 # Playwright MCP is what agents get, unmodified. These two settings only choose which of its tools exist.
+worker:
+  # Memory limit of each worker Pod (Chromium and its /dev/shm). The request stays 512Mi. Real sites need well
+  # over 1Gi: at that limit the kubelet OOM-kills Chromium renderers and then the container.
+  memoryLimit: 3Gi
 mcp:
   # Playwright MCP tool groups the worker enables (comma separated; "core" is a stock server). Others it
   # documents: vision, pdf, devtools, network, storage, testing, config.
