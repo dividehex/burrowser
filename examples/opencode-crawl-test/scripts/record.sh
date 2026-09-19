@@ -12,7 +12,7 @@ f="results/returns/$n.txt"
 url=$(sed -n "${n}p" sites.txt)
 status=$(sed -n 's/^STATUS: *//p' "$f" | head -1 | awk '{print $1}')
 pages=$(sed -n 's/^PAGES: *//p' "$f" | head -1 | awk '{print $1}')
-faults=$(sed -n 's/^FAULTS: *//p' "$f" | head -1)
+faults=$(sed -n 's/^FAULTS: *//p' "$f" | head -1 | sed 's/[[:space:]]*$//')   # models often leave trailing spaces
 case "$status" in ok|partial|failed|skipped) ;; *) status=malformed ;; esac
 case "$pages" in ''|*[!0-9]*) pages=0 ;; esac
 case "${faults:-none}" in none|None|NONE|'-') fault=0 ;; *) fault=1 ;; esac
