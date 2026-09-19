@@ -104,7 +104,12 @@ export function createGateway(state = makeState(), adminToken = process.env.BURR
       }
       if (req.method === 'GET' && url.pathname === '/admin/runtimes') {
         if (!authorizeAdmin(req.headers)) return json(res, 401, { error: 'unauthenticated' });
-        return json(res, 200, { runtimes: liveRuntimes(await runtimeSource.listAdminRuntimes()) });
+        // A resumed session (new tab, or the browser restarted with the 24h cookie) has lost the CSRF token
+        // its login response carried; hand it back to the same-origin dashboard, as the cookie proves the session.
+        const csrf = adminAuth.authenticate(req.headers)?.csrfToken;
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...(csrf ? { 'x-csrf-token': csrf } : {}) });
+        res.end(JSON.stringify({ runtimes: liveRuntimes(await runtimeSource.listAdminRuntimes()) }));
+        return;
       }
       if (req.method === 'GET' && url.pathname === '/admin/runtimes/events') {
         if (!authorizeAdmin(req.headers)) return json(res, 401, { error: 'unauthenticated' });

@@ -26,11 +26,11 @@
 </head>
 <body>
   <h1>Burrowser — Live Runtimes</h1>
-  <div id="login">
+  <form id="login">
     <input id="token" type="password" placeholder="admin bootstrap token" autocomplete="off" />
-    <button id="loginButton">Sign in</button>
+    <button id="loginButton" type="submit">Sign in</button>
     <span id="loginStatus"></span>
-  </div>
+  </form>
   <div id="grid"></div>
   <p id="empty">No live runtimes yet — sign in above.</p>
   <script>
@@ -155,7 +155,8 @@
       source.addEventListener('removed', event => removeTile(JSON.parse(event.data).id));
     }
 
-    document.getElementById('loginButton').addEventListener('click', async () => {
+    loginBox.addEventListener('submit', async event => {
+      event.preventDefault();
       const status = document.getElementById('loginStatus');
       try {
         const response = await fetch('/admin/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bootstrap_token: document.getElementById('token').value }) });
@@ -178,7 +179,8 @@
       const remembered = recallCsrfToken();
       const probe = await fetch('/admin/runtimes').catch(() => undefined);
       if (!probe || !probe.ok) { forgetCsrfToken(); return; }
-      csrfToken = remembered;
+      csrfToken = probe.headers.get('x-csrf-token') || remembered;
+      rememberCsrfToken(csrfToken);
       const { runtimes } = await probe.json();
       for (const runtime of runtimes) renderTile(runtime);
       signedIn();

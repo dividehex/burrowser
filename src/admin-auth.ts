@@ -10,6 +10,9 @@ const equal = (left: string, right: string) => {
   return timingSafeEqual(a, b);
 };
 
+/** How long an admin session (and its cookie) lasts. */
+export const ADMIN_SESSION_TTL_MS = 24 * 60 * 60_000;
+
 export type AdminSession = { id: string; csrfToken: string; expiresAt: number };
 
 export class AdminAuth {
@@ -17,7 +20,7 @@ export class AdminAuth {
   private readonly ttlMs: number;
   private readonly sessions = new Map<string, Session>();
 
-  constructor(bootstrapToken?: string, ttlMs = 8 * 60 * 60_000) {
+  constructor(bootstrapToken?: string, ttlMs = ADMIN_SESSION_TTL_MS) {
     this.bootstrapToken = bootstrapToken;
     this.ttlMs = ttlMs;
   }
@@ -55,7 +58,7 @@ export class AdminAuth {
   }
 
   cookie(session: AdminSession) {
-    return `${cookieName}=${session.id}; Path=/; Secure; HttpOnly; SameSite=Strict`;
+    return `${cookieName}=${session.id}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(this.ttlMs / 1000)}`;
   }
 
   clearCookie() {

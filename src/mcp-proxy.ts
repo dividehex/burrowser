@@ -8,6 +8,8 @@ import type { WorkerPort } from './mcp.ts';
 export type WorkerMcpTarget = { url: URL; credential: string };
 
 const TOOL_CALL_TIMEOUT_MS = 300_000;
+/** A worker that was stopped (shutdown, idle reclaim) and is being started again may take a cold start: wait as long as a session start does. */
+const RECONNECT_RETRY_MS = 90_000;
 
 /**
  * The only tools Burrowser adds to Playwright's own: registering a passkey with the virtual authenticator is
@@ -43,6 +45,8 @@ export type ProxyOptions = {
   lease: { ensure(): Promise<void> };
   /** Tool names this gateway refuses to offer or run. */
   excludedTools: ReadonlySet<string>;
+  /** How long to keep trying to reach a worker that went away mid-session (default 90s). */
+  reconnectRetryMs?: number;
 };
 
 /** A worker that is still starting refuses connections or is not resolvable yet; anything else is a real failure. */
@@ -88,7 +92,7 @@ export async function createProxyServer(options: ProxyOptions): Promise<{ server
     catch (error) {
       if (!lostSession(error)) throw error;
       await upstream.close().catch(() => {});
-      upstream = await connectWorkerMcp(options.target);
+      upstream = await connectWorkerMcp(options.target, { retryMs: options.reconnectRetryMs ?? RECONNECT_RETRY_MS });
       return work(upstream);
     }
   };

@@ -42,6 +42,8 @@ test('the admin runtime dashboard requires admin auth and streams live-state cha
 
   assert.equal((await call('/admin/runtimes')).status, 401);
   assert.equal((await call('/admin/runtimes/events')).status, 401);
+  const page = await (await call('/admin')).text();
+  assert.match(page, /<form id="login"[\s\S]*type="submit"/, 'Enter in the token box submits the sign-in form');
 
   const login = await call('/admin/login', { method: 'POST', body: JSON.stringify({ bootstrap_token: 'admin-secret' }) });
   const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
@@ -49,6 +51,9 @@ test('the admin runtime dashboard requires admin auth and streams live-state cha
   const snapshotResp = await call('/admin/runtimes', { headers: { cookie } });
   assert.equal(snapshotResp.status, 200);
   assert.deepEqual((await snapshotResp.json() as any).runtimes, []);
+  assert.equal(snapshotResp.headers.get('x-csrf-token'), login.headers.get('x-csrf-token'), 'a resumed session can recover its CSRF token');
+  const bearer = await call('/admin/runtimes', { headers: { authorization: 'Bearer admin-secret' } });
+  assert.equal(bearer.headers.get('x-csrf-token'), null, 'bootstrap-token access has no session to hand a CSRF token for');
 
   const controller = new AbortController();
   const streamResp = await fetch(`http://127.0.0.1:${port}/admin/runtimes/events`, { headers: { cookie }, signal: controller.signal });

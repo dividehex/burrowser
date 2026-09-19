@@ -4,7 +4,8 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { profileLease, waitUntilUsable } from '../src/mcp.ts';
-import { connectWorkerMcp, PASSKEY_TOOLS, SHUTDOWN_TOOL } from '../src/mcp-proxy.ts';
+import { connectWorkerMcp, createProxyServer, PASSKEY_TOOLS, SHUTDOWN_TOOL } from '../src/mcp-proxy.ts';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from 'node:net';
 import { createGateway, makeState, parseToolList } from '../src/server.ts';
 import { FAKE_TOOLS, SCREENSHOT, SNAPSHOT_TEXT, startFakePlaywrightWorker } from './helpers/fake-playwright-worker.ts';
@@ -236,4 +237,25 @@ test('a worker whose server is still starting is retried for a bounded time, the
   const wrongCredential = await startFakePlaywrightWorker();
   await assert.rejects(() => connectWorkerMcp({ ...wrongCredential.target, credential: 'nope' }, { retryMs: 5000, pollMs: 20 }), 'a rejected credential is a real failure and is not retried until the budget runs out');
   await wrongCredential.close();
+});
+
+test('a worker that is stopped and started again mid-session is waited for, up to the reconnect window', async () => {
+  for (const { reconnectRetryMs, backAfterMs, recovers } of [{ reconnectRetryMs: 4000, backAfterMs: 600, recovers: true }, { reconnectRetryMs: 100, backAfterMs: 2500, recovers: false }]) {
+    let worker = await startFakePlaywrightWorker();
+    const port = Number(worker.target.url.port);
+    const { server, close } = await createProxyServer({ target: worker.target, lease: { ensure: async () => {} }, excludedTools: new Set(), reconnectRetryMs });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: 'test', version: '1' });
+    await client.connect(clientSide);
+    try {
+      await client.callTool({ name: 'browser_navigate', arguments: { url: 'https://a.example' } });
+      await worker.close();
+      const comesBack = new Promise<void>(resolve => setTimeout(async () => { worker = await startFakePlaywrightWorker(port); resolve(); }, backAfterMs));
+      const call = client.callTool({ name: 'browser_navigate', arguments: { url: 'https://b.example' } });
+      if (recovers) assert.match(((await call) as any).content[0].text, /b\.example/);
+      else await assert.rejects(call);
+      await comesBack;
+    } finally { await client.close(); await close(); await worker.close(); }
+  }
 });
