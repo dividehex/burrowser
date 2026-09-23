@@ -26,6 +26,14 @@ worker:
   # Memory limit of each worker Pod (Chromium and its /dev/shm). The request stays 512Mi. Real sites need well
   # over 1Gi: at that limit the kubelet OOM-kills Chromium renderers and then the container.
   memoryLimit: 3Gi
+  # Addresses the worker's browser may NOT reach on 80/443; the rest of the internet is allowed. Your pod, service
+  # and node networks must be inside these ranges (add them here if they are not).
+  egressExcept:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
 mcp:
   # Playwright MCP tool groups the worker enables (comma separated; "core" is a stock server). Others it
   # documents: vision, pdf, devtools, network, storage, testing, config.

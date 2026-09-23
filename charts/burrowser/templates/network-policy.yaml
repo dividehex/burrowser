@@ -30,6 +30,16 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
-  - ports:
+  # The browser gets the public internet and nothing else: private, carrier-
+  # grade NAT and link-local ranges are carved out, so a page cannot drive it
+  # at the LAN, the node, other pods, the Kubernetes API or a metadata endpoint.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        {{- toYaml .Values.worker.egressExcept | nindent 8 }}
+    ports:
+    - protocol: TCP
+      port: 80
     - protocol: TCP
       port: 443
