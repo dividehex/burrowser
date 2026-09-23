@@ -21,12 +21,16 @@
 #
 # Extra arguments are passed straight to helm, e.g. to expose the Service through the k3s
 # load balancer:  ./scripts/build-and-deploy-local.sh --set service.type=LoadBalancer
+#
+# BURROWSER_CHART deploys a different chart directory instead of charts/burrowser, e.g. a
+# site's own fork of it that carries that site's values and extra policies.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 REGISTRY=localhost:5000
 NAMESPACE=burrowser
 RELEASE=burrowser
+CHART=${BURROWSER_CHART:-charts/burrowser}
 
 docker build -t "$REGISTRY/burrowser-controller:dev" .
 docker build -t "$REGISTRY/burrowser-worker:dev" worker/
@@ -37,7 +41,7 @@ worker_digest=$(docker push "$REGISTRY/burrowser-worker:dev" | grep -oE 'sha256:
 echo "controller digest: $controller_digest"
 echo "worker digest: $worker_digest"
 
-helm upgrade --install "$RELEASE" charts/burrowser -n "$NAMESPACE" \
+helm upgrade --install "$RELEASE" "$CHART" -n "$NAMESPACE" \
   --set image.repository="$REGISTRY/burrowser-controller" \
   --set image.digest="$controller_digest" \
   --set image.pullPolicy=IfNotPresent \
